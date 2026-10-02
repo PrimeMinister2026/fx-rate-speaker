@@ -32,8 +32,8 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v72<\/title>/i.test(html),
-    "rendered output should contain preview metadata or the production v72 title",
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v73<\/title>/i.test(html),
+    "rendered output should contain preview metadata or the production v73 title",
   );
 });
 
@@ -46,7 +46,7 @@ test("v67 keeps modes 2, 3 and 4 NEWS audio", async () => {
   assert.match(source, /async function playCommentaryAlert/);
   assert.match(source, /\[987\.77, 1975\.54\][\s\S]*\[659\.25, 1318\.5\]/);
   assert.match(source, /commentary\.source === "NEWS"[\s\S]*"PRICE_RAPID"/);
-  assert.match(source, /<strong>v72<\/strong>/);
+  assert.match(source, /<strong>v73<\/strong>/);
   assert.match(source, />4 NEWS<\/button>/);
   assert.match(source, /audioModeRef\.current !== "mode4"/);
   assert.match(source, /NEWS_POLL_INTERVAL_MS = 60 \* 1000/);
@@ -264,18 +264,15 @@ test("v70 uses trend-aware strength persistence and keeps status immediately lef
   assert.match(styles, /\.movement \{[^}]*font-size:13px/);
 });
 
-test("v71 highlights the clock frame around the five-minute anomaly windows", async () => {
+test("v73 uses strong red clock danger windows at 50:00-05:00 and 20:00-35:00", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(page, /function isClockAlertWindow/);
-  assert.match(page, /minute === 44 \|\| minute === 45/);
-  assert.match(page, /minute === 49 \|\| minute === 50/);
-  assert.match(page, /minute === 54 \|\| minute === 55/);
-  assert.match(page, /minute === 59 \|\| minute === 0/);
-  assert.match(page, /minute === 4 \|\| minute === 5/);
-  assert.match(page, /control-clock \$\{isClockAlertWindow\(currentTime\) \? "alert-window" : ""\}/);
-  assert.match(styles, /\.control-clock \{[^}]*border:1px solid/);
-  assert.match(styles, /\.control-clock\.alert-window \{[^}]*border-color:#ff334d/);
+  assert.match(page, /second: "2-digit"/);
+  assert.match(page, /return within\(50, 5\) \|\| within\(20, 35\)/);
+  assert.match(styles, /\.control-clock\.alert-window \{[^}]*border-color:#ff1738[^}]*background:#b4001f/);
+  assert.match(styles, /animation:clock-alert-text-blink \.78s/);
+  assert.match(styles, /@keyframes clock-alert-text-blink/);
 });
 
 test("v72 keeps movement and S/S+ immediately beside the left edge of the rate number", async () => {
