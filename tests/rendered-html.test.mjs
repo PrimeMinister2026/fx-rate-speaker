@@ -202,7 +202,7 @@ test("v67 renders four ten-pair currency-strength pentagons and compact controls
   assert.match(page, /STRENGTH_PAIR_CODES\.map[\s\S]*data-pair=\{pairCode\}/);
   assert.match(page, /<linearGradient[\s\S]*stopColor=\{baseColor\}[\s\S]*stopColor=\{quoteColor\}/);
   assert.doesNotMatch(page, /magnitude < 6|magnitude >= 18/);
-  assert.match(page, /STRENGTH_VISUAL_EXPONENT = 2\.25/);
+  assert.match(page, /STRENGTH_VISUAL_EXPONENT = 1\.55/);
   assert.match(page, /normalized \*\* STRENGTH_VISUAL_EXPONENT/);
   assert.match(page, /strokeWidth=\{mapping\.width\}/);
   assert.match(page, /className="strength-guide-line"/);
