@@ -195,10 +195,10 @@ test("v67 renders four ten-pair currency-strength pentagons and compact controls
   assert.match(strength, /CURRENCY_STRENGTH_WINDOWS = \[60, 30, 15, 7\]/);
   assert.match(strength, /STRENGTH_VERTEX_ORDER = \["USD", "JPY", "AUD", "GBP", "EUR"\]/);
   assert.match(strength, /Math\.log\(point\.price\)/);
-  assert.match(strength, /endpoint \* 0\.45 \+ slope \* 0\.4 \+ consistency \* 0\.15/);
-  assert.match(strength, /raw\[base\] \+= signal;[\s\S]*raw\[quote\] -= signal/);
+  assert.match(strength, /rank: 0\.35, agreement: 0\.30, continuation: 0\.20, magnitude: 0\.15/);
+  assert.match(strength, /componentTotals\[base\]\.agreement \+= signedQuality;[\s\S]*componentTotals\[quote\]\.agreement -= signedQuality/);
   assert.match(strength, /usedPairs < STRENGTH_PAIR_CODES\.length/);
-  assert.match(strength, /Math\.max\(0, Math\.min\(100, 50 \+/);
+  assert.match(strength, /clamp\(50 \+ composite \* SCORE_SPAN, 0, 100\)/);
   assert.match(page, /STRENGTH_PAIR_CODES\.map[\s\S]*data-pair=\{pairCode\}/);
   assert.match(page, /<linearGradient[\s\S]*stopColor=\{baseColor\}[\s\S]*stopColor=\{quoteColor\}/);
   assert.doesNotMatch(page, /magnitude < 6|magnitude >= 18/);
