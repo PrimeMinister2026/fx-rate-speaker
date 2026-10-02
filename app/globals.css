@@ -25,7 +25,8 @@ h2 { margin:0; font-size:14px; }
 .brand-meta span { color:var(--muted); border-radius:999px; background:#0d0d0a; padding:3px 7px; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .brand-meta span.live { color:var(--green); background:#0b2018; }
 .error-banner { padding:7px 8px; border:1px solid #783844; border-radius:7px; background:#2b1117; color:#ff9aa7; font-weight:700; font-size:11px; }
-.control-clock { display:block; width:100%; padding:2px 0 1px; color:#f0d67c; font:800 clamp(13px,1.12vw,17px)/1.15 "Source Han Sans JP","Noto Sans JP",sans-serif; letter-spacing:-.015em; text-align:center; white-space:nowrap; }
+.control-clock { display:block; width:100%; padding:4px 6px 3px; border:1px solid #75662e; border-radius:6px; color:#f0d67c; background:#11100b; font:800 clamp(13px,1.12vw,17px)/1.15 "Source Han Sans JP","Noto Sans JP",sans-serif; letter-spacing:-.015em; text-align:center; white-space:nowrap; transition:border-color .15s,box-shadow .15s,background .15s; }
+.control-clock.alert-window { border-color:#ff334d; background:#2a0d12; box-shadow:inset 0 0 0 1px #ff334dcc,0 0 10px #ff334d66; }
 .main-action { width:100%; min-height:32px; border:1px solid #80651d; border-radius:8px; padding:5px 8px; font-weight:800; }
 .start { background:linear-gradient(135deg,#ffdc6a,#c99219); color:#171006; box-shadow:0 4px 18px #d59a1c2d; }
 .stop { background:#344157; color:#fff; }
