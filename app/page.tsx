@@ -208,6 +208,19 @@ function formatRemaining(seconds: number) {
   return [hours, minutes, secs].map((value) => String(value).padStart(2, "0")).join(":");
 }
 
+function isClockAlertWindow(timestamp: number) {
+  const minute = Number(new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Tokyo",
+    minute: "2-digit",
+    hour12: false,
+  }).format(timestamp));
+  return minute === 44 || minute === 45
+    || minute === 49 || minute === 50
+    || minute === 54 || minute === 55
+    || minute === 59 || minute === 0
+    || minute === 4 || minute === 5;
+}
+
 function formatLiveDateTime(timestamp: number) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Tokyo",
@@ -2188,10 +2201,10 @@ export default function Home() {
           <header className="brand-block">
             <p className="eyebrow">FX RATE SPEAKER</p>
             <h1>FXレート読み上げ</h1>
-            <div className="brand-meta"><strong>v70</strong><span className={running ? "live" : ""}>{status}</span></div>
+            <div className="brand-meta"><strong>v71</strong><span className={running ? "live" : ""}>{status}</span></div>
           </header>
           {detail && <div className="error-banner" role="alert">{detail}</div>}
-          <time className="control-clock" dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>
+          <time className={`control-clock ${isClockAlertWindow(currentTime) ? "alert-window" : ""}`} dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>
           <button className={`main-action ${running ? "stop" : "start"}`} onClick={() => { void toggleRunning(); }}>
             {running ? "停止" : "開始"}（Space）
           </button>
