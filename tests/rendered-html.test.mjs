@@ -32,8 +32,8 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v75<\/title>/i.test(html),
-    "rendered output should contain preview metadata or the production v75 title",
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v76<\/title>/i.test(html),
+    "rendered output should contain preview metadata or the production v76 title",
   );
 });
 
@@ -46,7 +46,7 @@ test("v67 keeps modes 2, 3 and 4 NEWS audio", async () => {
   assert.match(source, /async function playCommentaryAlert/);
   assert.match(source, /\[987\.77, 1975\.54\][\s\S]*\[659\.25, 1318\.5\]/);
   assert.match(source, /commentary\.source === "NEWS"[\s\S]*"PRICE_RAPID"/);
-  assert.match(source, /<strong>v75<\/strong>/);
+  assert.match(source, /<strong>v76<\/strong>/);
   assert.match(source, />4 NEWS<\/button>/);
   assert.match(source, /audioModeRef\.current !== "mode4"/);
   assert.match(source, /NEWS_POLL_INTERVAL_MS = 60 \* 1000/);
@@ -294,6 +294,17 @@ test("v75 reduces Forex Factory throttling risk and keeps a fallback calendar so
   assert.match(calendar, /UPSTREAM_CACHE_MS = 5 \* 60 \* 1000/);
   assert.match(calendar, /cachedSource/);
   assert.match(calendar, /stale-while-revalidate=600/);
+});
+
+test("v76 uses window-specific currency-strength v2 weighting", async () => {
+  const strength = await readFile(new URL("../lib/currency-strength.ts", import.meta.url), "utf8");
+  assert.match(strength, /SCORE_SPAN = 36/);
+  assert.match(strength, /function windowWeights/);
+  assert.match(strength, /rank: 0\.35, agreement: 0\.30, continuation: 0\.20, magnitude: 0\.15, acceleration: 0/);
+  assert.match(strength, /rank: 0, agreement: 0\.25, continuation: 0\.15, magnitude: 0\.35, acceleration: 0\.25/);
+  assert.match(strength, /efficiency \* 0\.55 \+ Math\.abs\(directionBalance\) \* 0\.45/);
+  assert.match(strength, /attachMagnitudeRanks/);
+  assert.match(strength, /components\.acceleration/);
 });
 
 test("v74 renders movement or S/S+ immediately before the rate on the same baseline", async () => {
