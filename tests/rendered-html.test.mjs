@@ -32,8 +32,8 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v74<\/title>/i.test(html),
-    "rendered output should contain preview metadata or the production v74 title",
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v75<\/title>/i.test(html),
+    "rendered output should contain preview metadata or the production v75 title",
   );
 });
 
@@ -46,7 +46,7 @@ test("v67 keeps modes 2, 3 and 4 NEWS audio", async () => {
   assert.match(source, /async function playCommentaryAlert/);
   assert.match(source, /\[987\.77, 1975\.54\][\s\S]*\[659\.25, 1318\.5\]/);
   assert.match(source, /commentary\.source === "NEWS"[\s\S]*"PRICE_RAPID"/);
-  assert.match(source, /<strong>v74<\/strong>/);
+  assert.match(source, /<strong>v75<\/strong>/);
   assert.match(source, />4 NEWS<\/button>/);
   assert.match(source, /audioModeRef\.current !== "mode4"/);
   assert.match(source, /NEWS_POLL_INTERVAL_MS = 60 \* 1000/);
@@ -101,7 +101,7 @@ test("v60 separates 30/60 second speech from 10 second silent graph polling and 
   assert.match(source, /\{\[30, 60\]\.map/);
   assert.doesNotMatch(source, /\{\[10, 30, 60\]\.map/);
   assert.match(source, /formatLiveDateTime\(currentTime\)/);
-  assert.match(source, /className="control-clock"/);
+  assert.match(source, /className=\{`control-clock \\${isClockAlertWindow\(currentTime\) \? "alert-window" : ""}`\}/);
   assert.match(styles, /\.control-clock/);
   assert.match(styles, /\.intervals \{ grid-template-columns:repeat\(2,1fr\)/);
 });
@@ -207,7 +207,7 @@ test("v67 renders four ten-pair currency-strength pentagons and compact controls
   assert.match(page, /strokeWidth=\{mapping\.width\}/);
   assert.match(page, /className="strength-guide-line"/);
   assert.doesNotMatch(page, /className="radar-value"/);
-  assert.match(page, /<StrengthPentagon key=\{windowSize\}/);
+  assert.match(page, /<StrengthPentagon[\s\S]*key=\{windowSize\}[\s\S]*displayPairScores=/);
   assert.match(page, /className="pentagon-wait"[\s\S]*WAIT/);
   assert.match(page, /event\.key === "m" \|\| event\.key === "M"/);
   assert.match(page, /applySoundEnabled\(!soundOnRef\.current\)/);
@@ -226,9 +226,9 @@ test("v67 keeps title, rates and multi-label history readable", async () => {
   assert.match(page, /<h1>FXレート読み上げ<\/h1>/);
   assert.doesNotMatch(page, /<h1><span>FXレート<\/span><span>読み上げ<\/span><\/h1>/);
   assert.match(styles, /\.control-clock \{[^}]*width:100%;[^}]*clamp\(13px,1\.12vw,17px\)/);
-  assert.match(styles, /\.rate-row \{[^}]*minmax\(0,1\.76fr\)[^}]*minmax\(122px,1fr\)/);
-  assert.match(styles, /\.rate-value \{[^}]*padding:0 2px 0 0[^}]*clamp\(20px,1\.7vw,24px\)/);
-  assert.match(page, /className="rate-status-slot"[\s\S]*className="rate-value"/);
+  assert.match(styles, /\.rate-row \{[^}]*minmax\(0,1\.6fr\)[^}]*minmax\(138px,1\.1fr\)/);
+  assert.match(styles, /\.rate-value \{[^}]*padding:0 2px 0 0[^}]*clamp\(24px,1\.95vw,28px\)/);
+  assert.doesNotMatch(page, /className="rate-status-slot"/);
   assert.match(styles, /@keyframes rapid-pair-pulse \{ 0%,100%[^}]*\} 10%,90%/);
   assert.match(page, /className="history-meta"[\s\S]*className="feed-text"/);
   assert.match(styles, /\.history-row \{[^}]*grid-template-columns:minmax\(0,1fr\)/);
@@ -257,11 +257,11 @@ test("v70 uses trend-aware strength persistence and keeps status immediately lef
   assert.match(page, /consecutive/);
   assert.match(page, /strengthTrendHistoryRef/);
   assert.match(page, /displayPairScores=\{strengthDisplayScores\[windowSize\]/);
-  assert.match(page, /className="rate-value-line"[\s\S]*className="rate-status-slot"[\s\S]*className="rate-value"/);
-  assert.match(styles, /\.rate-value-line \{[^}]*grid-template-columns:auto minmax\(0,1fr\)/);
-  assert.match(styles, /\.rate-value \{[^}]*clamp\(20px,1\.7vw,24px\)/);
+  assert.match(page, /className="rate-value-line"[\s\S]*movementSymbol\(movement\)[\s\S]*synthetic-badge[\s\S]*className="rate-value"/);
+  assert.match(styles, /\.rate-value-line \{[^}]*display:flex[^}]*align-items:baseline[^}]*justify-content:flex-end/);
+  assert.match(styles, /\.rate-value \{[^}]*clamp\(24px,1\.95vw,28px\)/);
   assert.match(styles, /\.synthetic-badge \{[^}]*border:0[^}]*background:transparent[^}]*font-size:7px/);
-  assert.match(styles, /\.movement \{[^}]*font-size:13px/);
+  assert.match(styles, /\.movement \{[^}]*font-size:14px/);
 });
 
 test("v73 uses strong red clock danger windows at 50:00-05:00 and 20:00-35:00", async () => {
@@ -275,13 +275,25 @@ test("v73 uses strong red clock danger windows at 50:00-05:00 and 20:00-35:00", 
   assert.match(styles, /@keyframes clock-alert-text-blink/);
 });
 
-test("v72 keeps movement and S/S+ immediately beside the left edge of the rate number", async () => {
+test("v72 inline status intent is preserved by the current rate layout", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(page, /className="rate-value-line"[\s\S]*className="rate-status-slot"[\s\S]*className="rate-value"/);
-  assert.match(styles, /\.rate-value-line \{[^}]*display:flex[^}]*justify-content:flex-end[^}]*gap:4px/);
+  assert.match(page, /className="rate-value-line"[\s\S]*movementSymbol\(movement\)[\s\S]*synthetic-badge[\s\S]*className="rate-value"/);
+  assert.doesNotMatch(page, /className="rate-status-slot"/);
+  assert.match(styles, /\.rate-value-line \{[^}]*display:flex[^}]*align-items:baseline[^}]*justify-content:flex-end[^}]*gap:5px/);
   assert.match(styles, /\.rate-value \{[^}]*flex:0 0 auto[^}]*width:auto/);
-  assert.match(styles, /\.synthetic-badge \{[^}]*border:0[^}]*font-size:6px/);
+  assert.match(styles, /\.synthetic-badge \{[^}]*border:0[^}]*font-size:7px/);
+});
+
+test("v75 reduces Forex Factory throttling risk and keeps a fallback calendar source", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const calendar = await readFile(new URL("../app/api/calendar/route.ts", import.meta.url), "utf8");
+  assert.match(page, /CALENDAR_POLL_INTERVAL_MS = 5 \* 60 \* 1000/);
+  assert.match(page, /CALENDAR_STALE_MS = 15 \* 60 \* 1000/);
+  assert.match(calendar, /cdn-nfs\.faireconomy\.media\/ff_calendar_thisweek\.json/);
+  assert.match(calendar, /UPSTREAM_CACHE_MS = 5 \* 60 \* 1000/);
+  assert.match(calendar, /cachedSource/);
+  assert.match(calendar, /stale-while-revalidate=600/);
 });
 
 test("v74 renders movement or S/S+ immediately before the rate on the same baseline", async () => {

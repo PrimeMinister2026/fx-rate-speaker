@@ -77,8 +77,8 @@ const BREAKOUT_LOOKBACK_SECONDS = 15 * 60;
 const BREAKOUT_RANGE_RATIO = 0.04;
 const BREAKOUT_MIN_PIPS = 0.5;
 const NEWS_POLL_INTERVAL_MS = 60 * 1000;
-const CALENDAR_POLL_INTERVAL_MS = 60 * 1000;
-const CALENDAR_STALE_MS = 5 * 60 * 1000;
+const CALENDAR_POLL_INTERVAL_MS = 5 * 60 * 1000;
+const CALENDAR_STALE_MS = 15 * 60 * 1000;
 const CALENDAR_POST_EVENT_MS = 20 * 60 * 1000;
 const COMMENTARY_QUEUE_STALE_MS = 90 * 1000;
 const NEWS_SEEN_STORAGE_KEY = "fx-rate-speaker-seen-news";
@@ -2210,7 +2210,7 @@ export default function Home() {
           <header className="brand-block">
             <p className="eyebrow">FX RATE SPEAKER</p>
             <h1>FXレート読み上げ</h1>
-            <div className="brand-meta"><strong>v74</strong><span className={running ? "live" : ""}>{status}</span></div>
+            <div className="brand-meta"><strong>v75</strong><span className={running ? "live" : ""}>{status}</span></div>
           </header>
           {detail && <div className="error-banner" role="alert">{detail}</div>}
           <time className={`control-clock ${isClockAlertWindow(currentTime) ? "alert-window" : ""}`} dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>
