@@ -86,3 +86,27 @@ test("60, 30, 15 and 7 preserve a multi-stage USD reversal instead of collapsing
   assert.ok(scores[3] < scores[2], `7 point USD should be weakest: ${scores}`);
   assert.equal(new Set(scores.map((score) => score.toFixed(4))).size, 4);
 });
+
+
+test("strength v2 keeps a subtle but persistent long-window currency advantage visible", () => {
+  const histories = historiesFromCurrencySlopes({ USD: .000012, JPY: -.000012, EUR: .000001, GBP: 0, AUD: -.000001 }, 60);
+  const result = calculateCurrencyStrength(histories, 60);
+  assert.equal(result.ready, true);
+  assert.ok(result.scores.USD > 55);
+  assert.ok(result.scores.JPY < 45);
+  assert.ok(result.pairScores["USD/JPY"] > 10);
+});
+
+test("strength v2 suppresses directionless noise compared with a clean trend", () => {
+  const clean = historiesFromCurrencySlopes({ USD: .00005, JPY: -.00005, EUR: 0, GBP: 0, AUD: 0 }, 30);
+  const noisy = Object.fromEntries(Object.entries(clean).map(([pairCode, history]) => [
+    pairCode,
+    history.map((point, index) => ({
+      ...point,
+      price: point.price * Math.exp(index === 0 ? 0 : (index % 2 === 0 ? .00018 : -.00018)),
+    })),
+  ]));
+  const cleanResult = calculateCurrencyStrength(clean, 30);
+  const noisyResult = calculateCurrencyStrength(noisy, 30);
+  assert.ok(Math.abs(cleanResult.pairScores["USD/JPY"]) >= Math.abs(noisyResult.pairScores["USD/JPY"]));
+});

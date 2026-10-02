@@ -18,45 +18,102 @@ export type CurrencyCode = typeof STRENGTH_CURRENCIES[number];
 export type CurrencyStrength = Record<CurrencyCode, number>;
 export type StrengthPoint = { price: number; timestamp: number };
 
-const CURRENCY_STRENGTH_LOG_SCALE = 0.0002;
+type PairFeature = {
+  totalReturn: number;
+  direction: number;
+  quality: number;
+  continuation: number;
+  acceleration: number;
+  magnitude: number;
+  magnitudeRank: number;
+};
+
+const SCORE_SPAN = 36;
+const EPSILON = 1e-12;
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function mean(values: number[]) {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function windowWeights(windowSize: number) {
+  if (windowSize >= 60) {
+    return { rank: 0.35, agreement: 0.30, continuation: 0.20, magnitude: 0.15, acceleration: 0 };
+  }
+  if (windowSize >= 30) {
+    return { rank: 0.35, agreement: 0.30, continuation: 0.20, magnitude: 0.15, acceleration: 0 };
+  }
+  if (windowSize >= 15) {
+    return { rank: 0.30, agreement: 0.30, continuation: 0.20, magnitude: 0.10, acceleration: 0.10 };
+  }
+  return { rank: 0, agreement: 0.25, continuation: 0.15, magnitude: 0.35, acceleration: 0.25 };
+}
 
 export function pairPeriodSignal(history: StrengthPoint[], windowSize: number) {
   const points = history.slice(-windowSize);
   if (points.length < windowSize) return null;
+
   const logs = points.map((point) => Math.log(point.price));
-  const count = logs.length;
-  const endpoint = (logs[count - 1] - logs[0]) / (count - 1);
-  const meanX = (count - 1) / 2;
-  const meanY = logs.reduce((sum, value) => sum + value, 0) / count;
-  let covariance = 0;
-  let variance = 0;
-  for (let index = 0; index < count; index += 1) {
-    covariance += (index - meanX) * (logs[index] - meanY);
-    variance += (index - meanX) ** 2;
-  }
-  const slope = variance ? covariance / variance : 0;
   const returns = logs.slice(1).map((value, index) => value - logs[index]);
-  const meanAbsolute = returns.reduce((sum, value) => sum + Math.abs(value), 0) / returns.length;
-  const directionBalance = returns.reduce((sum, value) => sum + Math.sign(value), 0) / returns.length;
-  const consistency = directionBalance * meanAbsolute;
-  return endpoint * 0.45 + slope * 0.4 + consistency * 0.15;
+  const totalReturn = logs.at(-1)! - logs[0];
+  const direction = Math.sign(totalReturn);
+  const meanAbsoluteReturn = mean(returns.map((value) => Math.abs(value)));
+  const pathLength = returns.reduce((sum, value) => sum + Math.abs(value), 0);
+  const efficiency = pathLength > EPSILON ? Math.abs(totalReturn) / pathLength : 0;
+  const directionBalance = returns.length
+    ? returns.reduce((sum, value) => sum + Math.sign(value), 0) / returns.length
+    : 0;
+  const quality = clamp(efficiency * 0.55 + Math.abs(directionBalance) * 0.45, 0, 1);
+
+  const split = Math.max(1, Math.floor(returns.length * 0.6));
+  const earlier = returns.slice(0, split);
+  const later = returns.slice(split);
+  const acceleration = later.length && meanAbsoluteReturn > EPSILON
+    ? clamp((mean(later) - mean(earlier)) / (meanAbsoluteReturn * 2), -1, 1)
+    : 0;
+
+  return {
+    totalReturn,
+    direction,
+    quality,
+    continuation: directionBalance,
+    acceleration,
+    magnitude: Math.abs(totalReturn),
+    magnitudeRank: 0,
+  } satisfies PairFeature;
+}
+
+function attachMagnitudeRanks(features: Record<string, PairFeature>) {
+  const entries = Object.entries(features);
+  const maximumMagnitude = Math.max(EPSILON, ...entries.map(([, feature]) => feature.magnitude));
+  const sorted = [...entries].sort((left, right) => left[1].magnitude - right[1].magnitude);
+
+  sorted.forEach(([pairCode, feature], index) => {
+    const rank = sorted.length <= 1 ? 1 : index / (sorted.length - 1);
+    features[pairCode] = {
+      ...feature,
+      magnitude: feature.magnitude / maximumMagnitude,
+      magnitudeRank: rank,
+    };
+  });
 }
 
 export function calculateCurrencyStrength(histories: Record<string, StrengthPoint[]>, windowSize: number) {
   const raw = Object.fromEntries(STRENGTH_CURRENCIES.map((currency) => [currency, 0])) as CurrencyStrength;
   const counts = Object.fromEntries(STRENGTH_CURRENCIES.map((currency) => [currency, 0])) as CurrencyStrength;
   const pairSignals: Record<string, number> = {};
+  const features: Record<string, PairFeature> = {};
   let usedPairs = 0;
 
   for (const pairCode of STRENGTH_PAIR_CODES) {
-    const signal = pairPeriodSignal(histories[pairCode] ?? [], windowSize);
-    if (signal === null) continue;
-    const [base, quote] = pairCode.split("/") as [CurrencyCode, CurrencyCode];
-    pairSignals[pairCode] = signal;
-    raw[base] += signal;
-    raw[quote] -= signal;
-    counts[base] += 1;
-    counts[quote] += 1;
+    const feature = pairPeriodSignal(histories[pairCode] ?? [], windowSize);
+    if (feature === null) continue;
+    features[pairCode] = feature;
+    pairSignals[pairCode] = feature.totalReturn;
     usedPairs += 1;
   }
 
@@ -64,10 +121,57 @@ export function calculateCurrencyStrength(histories: Record<string, StrengthPoin
     return { ready: false, scores: null, raw, pairSignals, pairScores: {}, usedPairs };
   }
 
+  attachMagnitudeRanks(features);
+  const weights = windowWeights(windowSize);
+  const componentTotals = Object.fromEntries(STRENGTH_CURRENCIES.map((currency) => [currency, {
+    rank: 0,
+    agreement: 0,
+    continuation: 0,
+    magnitude: 0,
+    acceleration: 0,
+  }])) as Record<CurrencyCode, {
+    rank: number;
+    agreement: number;
+    continuation: number;
+    magnitude: number;
+    acceleration: number;
+  }>;
+
+  for (const pairCode of STRENGTH_PAIR_CODES) {
+    const [base, quote] = pairCode.split("/") as [CurrencyCode, CurrencyCode];
+    const feature = features[pairCode];
+    const signedQuality = feature.direction * feature.quality;
+    const signedRank = feature.direction * feature.magnitudeRank * feature.quality;
+    const signedMagnitude = feature.direction * feature.magnitude * feature.quality;
+
+    componentTotals[base].rank += signedRank;
+    componentTotals[quote].rank -= signedRank;
+    componentTotals[base].agreement += signedQuality;
+    componentTotals[quote].agreement -= signedQuality;
+    componentTotals[base].continuation += feature.continuation;
+    componentTotals[quote].continuation -= feature.continuation;
+    componentTotals[base].magnitude += signedMagnitude;
+    componentTotals[quote].magnitude -= signedMagnitude;
+    componentTotals[base].acceleration += feature.acceleration;
+    componentTotals[quote].acceleration -= feature.acceleration;
+    counts[base] += 1;
+    counts[quote] += 1;
+  }
+
   const scores = Object.fromEntries(STRENGTH_CURRENCIES.map((currency) => {
-    const average = counts[currency] ? raw[currency] / counts[currency] : 0;
-    return [currency, Math.max(0, Math.min(100, 50 + (average / CURRENCY_STRENGTH_LOG_SCALE) * 50))];
+    const divisor = counts[currency] || 1;
+    const components = componentTotals[currency];
+    const composite =
+      (components.rank / divisor) * weights.rank
+      + (components.agreement / divisor) * weights.agreement
+      + (components.continuation / divisor) * weights.continuation
+      + (components.magnitude / divisor) * weights.magnitude
+      + (components.acceleration / divisor) * weights.acceleration;
+
+    raw[currency] = composite;
+    return [currency, clamp(50 + composite * SCORE_SPAN, 0, 100)];
   })) as CurrencyStrength;
+
   const pairScores = Object.fromEntries(STRENGTH_PAIR_CODES.map((pairCode) => {
     const [base, quote] = pairCode.split("/") as [CurrencyCode, CurrencyCode];
     return [pairCode, scores[base] - scores[quote]];
