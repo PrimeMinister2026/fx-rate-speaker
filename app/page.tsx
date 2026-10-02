@@ -93,11 +93,11 @@ const CALENDAR_AMBER_MINUTES = 30;
 const CALENDAR_ORANGE_MINUTES = 10;
 const CALENDAR_RED_MINUTES = 5;
 const CALENDAR_POST_ALERT_MINUTES = 10;
-const STRENGTH_VISUAL_MAX_DIFFERENCE = 35;
-const STRENGTH_VISUAL_EXPONENT = 2.25;
+const STRENGTH_VISUAL_MAX_DIFFERENCE = 18;
+const STRENGTH_VISUAL_EXPONENT = 1.55;
 const STRENGTH_LINE_MIN_WIDTH = 0.7;
-const STRENGTH_LINE_MAX_WIDTH = 7.6;
-const STRENGTH_LINE_MIN_OPACITY = 0.12;
+const STRENGTH_LINE_MAX_WIDTH = 8.2;
+const STRENGTH_LINE_MIN_OPACITY = 0.18;
 const STRENGTH_LINE_MAX_OPACITY = 1;
 
 type Rate = { price: number; timestamp: number };
@@ -360,8 +360,11 @@ function interpolateRgb(from: readonly [number, number, number], to: readonly [n
 function strengthVisual(difference: number) {
   const normalized = Math.max(0, Math.min(1, Math.abs(difference) / STRENGTH_VISUAL_MAX_DIFFERENCE));
   const visual = normalized ** STRENGTH_VISUAL_EXPONENT;
+  const color = normalized ** 1.05;
   return {
+    normalized,
     visual,
+    color,
     width: STRENGTH_LINE_MIN_WIDTH + (STRENGTH_LINE_MAX_WIDTH - STRENGTH_LINE_MIN_WIDTH) * visual,
     opacity: STRENGTH_LINE_MIN_OPACITY + (STRENGTH_LINE_MAX_OPACITY - STRENGTH_LINE_MIN_OPACITY) * visual,
   };
@@ -388,10 +391,10 @@ function StrengthPentagon({ label, result }: { label: number; result: ReturnType
       {result.ready && <defs>{STRENGTH_PAIR_CODES.map((pairCode, index) => {
         const [base, quote] = pairCode.split("/") as [CurrencyCode, CurrencyCode];
         const difference = result.pairScores[pairCode] ?? 0;
-        const { visual } = strengthVisual(difference);
-        const neutralColor = [70, 73, 78] as const;
-        const green = interpolateRgb(neutralColor, [0, 240, 122], visual);
-        const red = interpolateRgb(neutralColor, [255, 49, 80], visual);
+        const { color } = strengthVisual(difference);
+        const neutralColor = [72, 76, 80] as const;
+        const green = interpolateRgb(neutralColor, [20, 255, 138], color);
+        const red = interpolateRgb(neutralColor, [255, 60, 92], color);
         const baseColor = difference >= 0 ? green : red;
         const quoteColor = difference >= 0 ? red : green;
         return <linearGradient key={pairCode} id={`strength-${label}-${index}`} gradientUnits="userSpaceOnUse" x1={vertices[base][0]} y1={vertices[base][1]} x2={vertices[quote][0]} y2={vertices[quote][1]}>
@@ -1491,6 +1494,9 @@ export default function Home() {
       const state = syntheticLearningRef.current[symbol] ?? emptySyntheticLearningState();
       const rawPoint = rawSyntheticFor(symbol, sources, now);
       if (!rawPoint) {
+        // Do not keep reusing an old synthetic point after its source timestamps stop aligning.
+        // Falling back to the formal direct rate prevents a flat/stale graph until synthetic recovers.
+        delete latestSyntheticRef.current[symbol];
         statuses[symbol] = state.status;
         return;
       }
@@ -1587,7 +1593,14 @@ export default function Home() {
     lastGraphGridRef.current = gridTimestamp;
     const nextSparklineHistories = { ...sparklineHistoriesRef.current };
     PAIRS.forEach((pair) => {
-      const latest = latestSyntheticRef.current[pair.code] ?? ratesRef.current[pair.code];
+      const direct = ratesRef.current[pair.code];
+      const synthetic = latestSyntheticRef.current[pair.code];
+      // Synthetic is preferred only while it is at least as current as the formal direct quote
+      // (allowing the existing 20-second source-alignment tolerance). This prevents an old
+      // EUR/USD or GBP/USD synthetic value from being copied into every 10-second graph slot.
+      const latest = synthetic && (!direct || synthetic.timestamp >= direct.timestamp - 20)
+        ? synthetic
+        : direct;
       if (!latest || !Number.isFinite(latest.price) || latest.price <= 0) return;
       nextSparklineHistories[pair.code] = appendSparklinePoint(nextSparklineHistories[pair.code] ?? [], {
         price: latest.price,
@@ -2108,7 +2121,7 @@ export default function Home() {
           <header className="brand-block">
             <p className="eyebrow">FX RATE SPEAKER</p>
             <h1>FXレート読み上げ</h1>
-            <div className="brand-meta"><strong>v68</strong><span className={running ? "live" : ""}>{status}</span></div>
+            <div className="brand-meta"><strong>v69</strong><span className={running ? "live" : ""}>{status}</span></div>
           </header>
           {detail && <div className="error-banner" role="alert">{detail}</div>}
           <time className="control-clock" dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>
