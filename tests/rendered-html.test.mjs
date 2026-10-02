@@ -32,8 +32,8 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v69<\/title>/i.test(html),
-    "rendered output should contain preview metadata or the production v69 title",
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v70<\/title>/i.test(html),
+    "rendered output should contain preview metadata or the production v70 title",
   );
 });
 
@@ -46,7 +46,7 @@ test("v67 keeps modes 2, 3 and 4 NEWS audio", async () => {
   assert.match(source, /async function playCommentaryAlert/);
   assert.match(source, /\[987\.77, 1975\.54\][\s\S]*\[659\.25, 1318\.5\]/);
   assert.match(source, /commentary\.source === "NEWS"[\s\S]*"PRICE_RAPID"/);
-  assert.match(source, /<strong>v69<\/strong>/);
+  assert.match(source, /<strong>v70<\/strong>/);
   assert.match(source, />4 NEWS<\/button>/);
   assert.match(source, /audioModeRef\.current !== "mode4"/);
   assert.match(source, /NEWS_POLL_INTERVAL_MS = 60 \* 1000/);
@@ -226,8 +226,8 @@ test("v67 keeps title, rates and multi-label history readable", async () => {
   assert.match(page, /<h1>FXレート読み上げ<\/h1>/);
   assert.doesNotMatch(page, /<h1><span>FXレート<\/span><span>読み上げ<\/span><\/h1>/);
   assert.match(styles, /\.control-clock \{[^}]*width:100%;[^}]*clamp\(13px,1\.12vw,17px\)/);
-  assert.match(styles, /\.rate-row \{[^}]*minmax\(0,1\.76fr\)[^}]*minmax\(106px,\.94fr\)/);
-  assert.match(styles, /\.rate-value \{[^}]*padding:0 2px 0 0[^}]*clamp\(17px,1\.45vw,21px\)/);
+  assert.match(styles, /\.rate-row \{[^}]*minmax\(0,1\.76fr\)[^}]*minmax\(122px,1fr\)/);
+  assert.match(styles, /\.rate-value \{[^}]*padding:0 2px 0 0[^}]*clamp\(20px,1\.7vw,24px\)/);
   assert.match(page, /className="rate-status-slot"[\s\S]*className="rate-value"/);
   assert.match(styles, /@keyframes rapid-pair-pulse \{ 0%,100%[^}]*\} 10%,90%/);
   assert.match(page, /className="history-meta"[\s\S]*className="feed-text"/);
@@ -246,6 +246,22 @@ test("v69 prefers live Yahoo meta quotes and prevents stale synthetic graph reus
   assert.match(page, /STRENGTH_VISUAL_EXPONENT = 1\.55/);
   assert.match(page, /const color = normalized \*\* 1\.05/);
   assert.match(page, /STRENGTH_LINE_MAX_WIDTH = 8\.2/);
+});
+
+test("v70 uses trend-aware strength persistence and keeps status immediately left of the restored large rate", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(page, /STRENGTH_TREND_HISTORY = \{ 60: 6, 30: 5, 15: 4, 7: 3 \}/);
+  assert.match(page, /function trendAwareStrengthDifference/);
+  assert.match(page, /consistency \* 0\.65/);
+  assert.match(page, /consecutive/);
+  assert.match(page, /strengthTrendHistoryRef/);
+  assert.match(page, /displayPairScores=\{strengthDisplayScores\[windowSize\]/);
+  assert.match(page, /className="rate-value-line"[\s\S]*className="rate-status-slot"[\s\S]*className="rate-value"/);
+  assert.match(styles, /\.rate-value-line \{[^}]*grid-template-columns:auto minmax\(0,1fr\)/);
+  assert.match(styles, /\.rate-value \{[^}]*clamp\(20px,1\.7vw,24px\)/);
+  assert.match(styles, /\.synthetic-badge \{[^}]*border:0[^}]*background:transparent[^}]*font-size:7px/);
+  assert.match(styles, /\.movement \{[^}]*font-size:13px/);
 });
 
 test("v60 wires direct cross-yen sources into self-correcting synthetic histories without replacing formal rates", async () => {

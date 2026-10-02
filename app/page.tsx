@@ -99,6 +99,8 @@ const STRENGTH_LINE_MIN_WIDTH = 0.7;
 const STRENGTH_LINE_MAX_WIDTH = 8.2;
 const STRENGTH_LINE_MIN_OPACITY = 0.18;
 const STRENGTH_LINE_MAX_OPACITY = 1;
+const STRENGTH_TREND_HISTORY = { 60: 6, 30: 5, 15: 4, 7: 3 } as const;
+const STRENGTH_SIGNIFICANT_DIFFERENCE = 0.75;
 
 type Rate = { price: number; timestamp: number };
 type RateMap = Record<string, Rate>;
@@ -370,7 +372,48 @@ function strengthVisual(difference: number) {
   };
 }
 
-function StrengthPentagon({ label, result }: { label: number; result: ReturnType<typeof calculateCurrencyStrength> }) {
+function trendAwareStrengthDifference(history: number[]) {
+  if (!history.length) return 0;
+  const current = history.at(-1) ?? 0;
+  const significant = history.filter((value) => Math.abs(value) >= STRENGTH_SIGNIFICANT_DIFFERENCE);
+  if (!significant.length) return current * 0.45;
+
+  const weightedSum = significant.reduce((sum, value, index) => sum + value * (index + 1), 0);
+  const dominantSign = Math.sign(weightedSum) || Math.sign(current) || 1;
+  const aligned = significant.filter((value) => Math.sign(value) === dominantSign);
+  const consistency = aligned.length / significant.length;
+  const orderedMagnitudes = aligned.map((value) => Math.abs(value)).sort((a, b) => a - b);
+  const sustainedMagnitude = orderedMagnitudes.length
+    ? orderedMagnitudes[Math.floor(orderedMagnitudes.length / 2)]
+    : 0;
+
+  let consecutive = 0;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const value = history[index];
+    if (Math.abs(value) < STRENGTH_SIGNIFICANT_DIFFERENCE) continue;
+    if (Math.sign(value) !== dominantSign) break;
+    consecutive += 1;
+  }
+
+  const continuation = Math.max(0, Math.min(1,
+    consistency * 0.65 + Math.min(1, consecutive / Math.max(2, history.length * 0.5)) * 0.35,
+  ));
+  const currentAligned = Math.sign(current) === dominantSign || Math.abs(current) < STRENGTH_SIGNIFICANT_DIFFERENCE;
+
+  if (!currentAligned && Math.abs(current) >= STRENGTH_SIGNIFICANT_DIFFERENCE * 2) {
+    return current * 0.7;
+  }
+
+  const carriedMagnitude = sustainedMagnitude * (0.35 + continuation * 0.65);
+  const liveMagnitude = Math.abs(current) * (0.55 + continuation * 0.45);
+  return dominantSign * Math.max(liveMagnitude, carriedMagnitude);
+}
+
+function StrengthPentagon({ label, result, displayPairScores }: {
+  label: number;
+  result: ReturnType<typeof calculateCurrencyStrength>;
+  displayPairScores: Record<string, number>;
+}) {
   const centerX = 60;
   const centerY = 55;
   const radius = 35;
@@ -390,7 +433,7 @@ function StrengthPentagon({ label, result }: { label: number; result: ReturnType
       })}
       {result.ready && <defs>{STRENGTH_PAIR_CODES.map((pairCode, index) => {
         const [base, quote] = pairCode.split("/") as [CurrencyCode, CurrencyCode];
-        const difference = result.pairScores[pairCode] ?? 0;
+        const difference = displayPairScores[pairCode] ?? 0;
         const { color } = strengthVisual(difference);
         const neutralColor = [72, 76, 80] as const;
         const green = interpolateRgb(neutralColor, [20, 255, 138], color);
@@ -406,7 +449,7 @@ function StrengthPentagon({ label, result }: { label: number; result: ReturnType
       })}</defs>}
       {result.ready && STRENGTH_PAIR_CODES.map((pairCode, index) => {
         const [base, quote] = pairCode.split("/") as [CurrencyCode, CurrencyCode];
-        const mapping = strengthVisual(result.pairScores[pairCode] ?? 0);
+        const mapping = strengthVisual(displayPairScores[pairCode] ?? 0);
         return <line key={pairCode} className="strength-pair-line" data-pair={pairCode} x1={vertices[base][0]} y1={vertices[base][1]} x2={vertices[quote][0]} y2={vertices[quote][1]} stroke={`url(#strength-${label}-${index})`} strokeWidth={mapping.width} opacity={mapping.opacity} />;
       })}
       {STRENGTH_VERTEX_ORDER.map((currency, index) => {
@@ -564,6 +607,8 @@ export default function Home() {
   const syntheticOutputHistoryRef = useRef<Record<string, Rate[]>>({});
   const latestSyntheticRef = useRef<RateMap>({});
   const previousStrengthScoresRef = useRef<Partial<Record<number, CurrencyStrength>>>({});
+  const strengthTrendHistoryRef = useRef<Record<number, Record<string, number[]>>>({});
+  const [strengthDisplayScores, setStrengthDisplayScores] = useState<Record<number, Record<string, number>>>({});
 
   function ensureAudio() {
     if (!audioRef.current) {
@@ -2083,6 +2128,28 @@ export default function Home() {
   ])) as Record<number, ReturnType<typeof calculateCurrencyStrength>>, [sparklineHistories]);
 
   useEffect(() => {
+    const nextDisplayScores: Record<number, Record<string, number>> = {};
+    CURRENCY_STRENGTH_WINDOWS.forEach((windowSize) => {
+      const result = strengthResults[windowSize];
+      const historyLimit = STRENGTH_TREND_HISTORY[windowSize];
+      const windowHistory = strengthTrendHistoryRef.current[windowSize] ?? {};
+      const nextWindowHistory: Record<string, number[]> = { ...windowHistory };
+      const nextWindowDisplay: Record<string, number> = {};
+
+      STRENGTH_PAIR_CODES.forEach((pairCode) => {
+        const rawDifference = result.pairScores[pairCode] ?? 0;
+        const nextHistory = [...(windowHistory[pairCode] ?? []), rawDifference].slice(-historyLimit);
+        nextWindowHistory[pairCode] = nextHistory;
+        nextWindowDisplay[pairCode] = result.ready ? trendAwareStrengthDifference(nextHistory) : 0;
+      });
+
+      strengthTrendHistoryRef.current[windowSize] = nextWindowHistory;
+      nextDisplayScores[windowSize] = nextWindowDisplay;
+    });
+    setStrengthDisplayScores(nextDisplayScores);
+  }, [strengthResults]);
+
+  useEffect(() => {
     CURRENCY_STRENGTH_WINDOWS.forEach((windowSize) => {
       const result = strengthResults[windowSize];
       const previous = previousStrengthScoresRef.current[windowSize];
@@ -2121,7 +2188,7 @@ export default function Home() {
           <header className="brand-block">
             <p className="eyebrow">FX RATE SPEAKER</p>
             <h1>FXレート読み上げ</h1>
-            <div className="brand-meta"><strong>v69</strong><span className={running ? "live" : ""}>{status}</span></div>
+            <div className="brand-meta"><strong>v70</strong><span className={running ? "live" : ""}>{status}</span></div>
           </header>
           {detail && <div className="error-banner" role="alert">{detail}</div>}
           <time className="control-clock" dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>
@@ -2162,7 +2229,14 @@ export default function Home() {
             <div className={`countdown ${running ? "active" : ""}`}><span>自動停止</span><strong>{formatRemaining(remainingSeconds)}</strong></div>
           </div>
           <div className="strength-grid" aria-label="通貨強弱">
-            {CURRENCY_STRENGTH_WINDOWS.map((windowSize) => <StrengthPentagon key={windowSize} label={windowSize} result={strengthResults[windowSize]} />)}
+            {CURRENCY_STRENGTH_WINDOWS.map((windowSize) => (
+              <StrengthPentagon
+                key={windowSize}
+                label={windowSize}
+                result={strengthResults[windowSize]}
+                displayPairScores={strengthDisplayScores[windowSize] ?? strengthResults[windowSize].pairScores}
+              />
+            ))}
           </div>
           <p className="source-note">Yahoo Finance 1分足参考レート<br />傾向・急変は直近{VOLATILITY_WINDOW}変化で自動判定</p>
         </aside>
@@ -2202,18 +2276,20 @@ export default function Home() {
                     <Sparkline history={history} movement={movement} direction={chartDirection} />
                   </div>
                   <div className="rate-summary">
-                    <div className="rate-status-slot">
-                      {movement !== "NORMAL" && (
-                        <span className={`movement ${movement}`} title={movementLabel(movement)} aria-label={movementLabel(movement)}>{movementSymbol(movement)}</span>
-                      )}
-                      {movement === "NORMAL" && SYNTHETIC_SYMBOLS.includes(pair.code as SyntheticSymbol) && (
-                        <span className={`synthetic-badge ${syntheticStatuses[pair.code] ?? "RAW"}`}
-                          title={`Synthetic ${syntheticStatuses[pair.code] ?? "RAW"}`}>
-                          {syntheticStatuses[pair.code] === "CORRECTED" ? "S+" : "S"}
-                        </span>
-                      )}
+                    <div className="rate-value-line">
+                      <div className="rate-status-slot">
+                        {movement !== "NORMAL" && (
+                          <span className={`movement ${movement}`} title={movementLabel(movement)} aria-label={movementLabel(movement)}>{movementSymbol(movement)}</span>
+                        )}
+                        {movement === "NORMAL" && SYNTHETIC_SYMBOLS.includes(pair.code as SyntheticSymbol) && (
+                          <span className={`synthetic-badge ${syntheticStatuses[pair.code] ?? "RAW"}`}
+                            title={`Synthetic ${syntheticStatuses[pair.code] ?? "RAW"}`}>
+                            {syntheticStatuses[pair.code] === "CORRECTED" ? "S+" : "S"}
+                          </span>
+                        )}
+                      </div>
+                      <div className="rate-value">{failed ? "取得失敗" : rate ? displayPrice(rate.price, pair.yen) : "---"}</div>
                     </div>
-                    <div className="rate-value">{failed ? "取得失敗" : rate ? displayPrice(rate.price, pair.yen) : "---"}</div>
                     <div className="rate-badges">
                       <span className="flow-badge" title={`60点 ${directionLabel(longDirection)}・30点 ${directionLabel(chartDirection)}・15点 ${directionLabel(midDirection)}・7点 ${directionLabel(recentDirection)}`}>
                         <FlowDirection label="60" direction={longDirection} history={longHistory} requiredPoints={SPARKLINE_LONG_WINDOW} />
