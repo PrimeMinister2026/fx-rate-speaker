@@ -86,9 +86,9 @@ button.chosen { border-color:var(--gold); background:#392d0c; color:#fff1b2; box
 .rate-identity time { color:#9e9680; font:700 8px/1 ui-monospace,"Cascadia Mono",monospace; }
 .spark-slot { width:100%; min-width:0; overflow:hidden; }
 .rate-summary { display:grid; grid-template-rows:minmax(22px,1fr) 14px; align-content:center; justify-items:end; gap:0; width:100%; min-width:0; overflow:hidden; }
-.rate-value-line { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; justify-items:end; column-gap:3px; width:100%; min-width:0; }
-.rate-status-slot { display:flex; align-items:center; justify-content:flex-end; width:auto; height:18px; min-width:0; padding:0; }
-.rate-value { width:100%; min-width:0; padding:0 2px 0 0; color:#fff8df; text-align:right; font:800 clamp(20px,1.7vw,24px)/1 ui-monospace,"Cascadia Mono",monospace; font-variant-numeric:tabular-nums; letter-spacing:-.045em; white-space:nowrap; }
+.rate-value-line { display:flex; align-items:center; justify-content:flex-end; gap:4px; width:100%; min-width:0; overflow:visible; }
+.rate-status-slot { display:flex; align-items:center; justify-content:flex-end; flex:0 0 auto; width:auto; height:22px; min-width:0; padding:0; }
+.rate-value { flex:0 0 auto; width:auto; min-width:0; padding:0 2px 0 0; color:#fff8df; text-align:right; font:800 clamp(20px,1.7vw,24px)/1 ui-monospace,"Cascadia Mono",monospace; font-variant-numeric:tabular-nums; letter-spacing:-.045em; white-space:nowrap; }
 .rate-badges { display:flex; justify-content:flex-end; gap:3px; width:100%; min-width:0; }
 .flow-badge { display:grid; grid-template-columns:repeat(4,22px); gap:2px; white-space:nowrap; }
 .flow-direction { display:grid; place-items:center; width:22px; height:14px; box-sizing:border-box; border:1px solid currentColor; border-radius:3px; font:700 7px/1 ui-monospace,"Cascadia Mono",monospace; }
@@ -108,7 +108,7 @@ button.chosen { border-color:var(--gold); background:#392d0c; color:#fff1b2; box
 .movement.UP_TREND,.movement.RAPID_UP { color:#8df0bf; }
 .movement.DOWN_TREND,.movement.RAPID_DOWN { color:#ff9eaa; }
 .movement.RAPID_UP,.movement.RAPID_DOWN { font-weight:800; }
-.synthetic-badge { display:inline-grid; place-items:center; flex:0 0 auto; width:auto; min-width:12px; height:16px; padding:0; border:0; border-radius:0; color:#aeb7c2; background:transparent; font-size:7px; font-weight:800; line-height:1; }
+.synthetic-badge { display:inline-grid; place-items:center; flex:0 0 auto; width:auto; min-width:10px; height:14px; padding:0; border:0; border-radius:0; color:#aeb7c2; background:transparent; font-size:6px; font-weight:800; line-height:1; }
 .synthetic-badge.CORRECTED { border:0; color:#d2d9e1; background:transparent; }
 .volatility-badge { display:grid; place-items:center; min-width:20px; height:15px; padding:0 3px; border:1px solid #3e4147; border-radius:4px; color:#777d86; background:#121418; font:800 7px/1 ui-monospace,"Cascadia Mono",monospace; }
 .volatility-badge.v2 { color:#adb2ba; border-color:#555b64; background:#20242a; }
