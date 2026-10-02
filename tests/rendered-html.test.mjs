@@ -32,8 +32,8 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v71<\/title>/i.test(html),
-    "rendered output should contain preview metadata or the production v71 title",
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v72<\/title>/i.test(html),
+    "rendered output should contain preview metadata or the production v72 title",
   );
 });
 
@@ -46,7 +46,7 @@ test("v67 keeps modes 2, 3 and 4 NEWS audio", async () => {
   assert.match(source, /async function playCommentaryAlert/);
   assert.match(source, /\[987\.77, 1975\.54\][\s\S]*\[659\.25, 1318\.5\]/);
   assert.match(source, /commentary\.source === "NEWS"[\s\S]*"PRICE_RAPID"/);
-  assert.match(source, /<strong>v71<\/strong>/);
+  assert.match(source, /<strong>v72<\/strong>/);
   assert.match(source, />4 NEWS<\/button>/);
   assert.match(source, /audioModeRef\.current !== "mode4"/);
   assert.match(source, /NEWS_POLL_INTERVAL_MS = 60 \* 1000/);
@@ -276,6 +276,15 @@ test("v71 highlights the clock frame around the five-minute anomaly windows", as
   assert.match(page, /control-clock \$\{isClockAlertWindow\(currentTime\) \? "alert-window" : ""\}/);
   assert.match(styles, /\.control-clock \{[^}]*border:1px solid/);
   assert.match(styles, /\.control-clock\.alert-window \{[^}]*border-color:#ff334d/);
+});
+
+test("v72 keeps movement and S/S+ immediately beside the left edge of the rate number", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(page, /className="rate-value-line"[\s\S]*className="rate-status-slot"[\s\S]*className="rate-value"/);
+  assert.match(styles, /\.rate-value-line \{[^}]*display:flex[^}]*justify-content:flex-end[^}]*gap:4px/);
+  assert.match(styles, /\.rate-value \{[^}]*flex:0 0 auto[^}]*width:auto/);
+  assert.match(styles, /\.synthetic-badge \{[^}]*border:0[^}]*font-size:6px/);
 });
 
 test("v60 wires direct cross-yen sources into self-correcting synthetic histories without replacing formal rates", async () => {
