@@ -2210,7 +2210,7 @@ export default function Home() {
           <header className="brand-block">
             <p className="eyebrow">FX RATE SPEAKER</p>
             <h1>FXレート読み上げ</h1>
-            <div className="brand-meta"><strong>v73</strong><span className={running ? "live" : ""}>{status}</span></div>
+            <div className="brand-meta"><strong>v74</strong><span className={running ? "live" : ""}>{status}</span></div>
           </header>
           {detail && <div className="error-banner" role="alert">{detail}</div>}
           <time className={`control-clock ${isClockAlertWindow(currentTime) ? "alert-window" : ""}`} dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>
@@ -2299,17 +2299,15 @@ export default function Home() {
                   </div>
                   <div className="rate-summary">
                     <div className="rate-value-line">
-                      <div className="rate-status-slot">
-                        {movement !== "NORMAL" && (
-                          <span className={`movement ${movement}`} title={movementLabel(movement)} aria-label={movementLabel(movement)}>{movementSymbol(movement)}</span>
-                        )}
-                        {movement === "NORMAL" && SYNTHETIC_SYMBOLS.includes(pair.code as SyntheticSymbol) && (
-                          <span className={`synthetic-badge ${syntheticStatuses[pair.code] ?? "RAW"}`}
-                            title={`Synthetic ${syntheticStatuses[pair.code] ?? "RAW"}`}>
-                            {syntheticStatuses[pair.code] === "CORRECTED" ? "S+" : "S"}
-                          </span>
-                        )}
-                      </div>
+                      {movement !== "NORMAL" && (
+                        <span className={`movement ${movement}`} title={movementLabel(movement)} aria-label={movementLabel(movement)}>{movementSymbol(movement)}</span>
+                      )}
+                      {movement === "NORMAL" && SYNTHETIC_SYMBOLS.includes(pair.code as SyntheticSymbol) && (
+                        <span className={`synthetic-badge ${syntheticStatuses[pair.code] ?? "RAW"}`}
+                          title={`Synthetic ${syntheticStatuses[pair.code] ?? "RAW"}`}>
+                          {syntheticStatuses[pair.code] === "CORRECTED" ? "S+" : "S"}
+                        </span>
+                      )}
                       <div className="rate-value">{failed ? "取得失敗" : rate ? displayPrice(rate.price, pair.yen) : "---"}</div>
                     </div>
                     <div className="rate-badges">
