@@ -32,8 +32,8 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v68<\/title>/i.test(html),
-    "rendered output should contain preview metadata or the production v68 title",
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v69<\/title>/i.test(html),
+    "rendered output should contain preview metadata or the production v69 title",
   );
 });
 
@@ -46,7 +46,7 @@ test("v67 keeps modes 2, 3 and 4 NEWS audio", async () => {
   assert.match(source, /async function playCommentaryAlert/);
   assert.match(source, /\[987\.77, 1975\.54\][\s\S]*\[659\.25, 1318\.5\]/);
   assert.match(source, /commentary\.source === "NEWS"[\s\S]*"PRICE_RAPID"/);
-  assert.match(source, /<strong>v68<\/strong>/);
+  assert.match(source, /<strong>v69<\/strong>/);
   assert.match(source, />4 NEWS<\/button>/);
   assert.match(source, /audioModeRef\.current !== "mode4"/);
   assert.match(source, /NEWS_POLL_INTERVAL_MS = 60 \* 1000/);
@@ -202,7 +202,7 @@ test("v67 renders four ten-pair currency-strength pentagons and compact controls
   assert.match(page, /STRENGTH_PAIR_CODES\.map[\s\S]*data-pair=\{pairCode\}/);
   assert.match(page, /<linearGradient[\s\S]*stopColor=\{baseColor\}[\s\S]*stopColor=\{quoteColor\}/);
   assert.doesNotMatch(page, /magnitude < 6|magnitude >= 18/);
-  assert.match(page, /STRENGTH_VISUAL_EXPONENT = 2\.25/);
+  assert.match(page, /STRENGTH_VISUAL_EXPONENT = 1\.55/);
   assert.match(page, /normalized \*\* STRENGTH_VISUAL_EXPONENT/);
   assert.match(page, /strokeWidth=\{mapping\.width\}/);
   assert.match(page, /className="strength-guide-line"/);
@@ -234,6 +234,18 @@ test("v67 keeps title, rates and multi-label history readable", async () => {
   assert.match(styles, /\.history-row \{[^}]*grid-template-columns:minmax\(0,1fr\)/);
   assert.match(styles, /\.history-meta \{[^}]*grid-template-columns:48px minmax\(0,1fr\) 72px/);
   assert.match(styles, /\.feed-kind \{[^}]*white-space:normal/);
+});
+
+test("v69 prefers live Yahoo meta quotes and prevents stale synthetic graph reuse", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const route = await readFile(new URL("../app/api/rates/route.ts", import.meta.url), "utf8");
+  assert.match(route, /const live = validRate\(chart\?\.meta\?\.regularMarketPrice, chart\?\.meta\?\.regularMarketTime\);[\s\S]*if \(live\) return live;/);
+  assert.match(page, /delete latestSyntheticRef\.current\[symbol\]/);
+  assert.match(page, /synthetic\.timestamp >= direct\.timestamp - 20/);
+  assert.match(page, /STRENGTH_VISUAL_MAX_DIFFERENCE = 18/);
+  assert.match(page, /STRENGTH_VISUAL_EXPONENT = 1\.55/);
+  assert.match(page, /const color = normalized \*\* 1\.05/);
+  assert.match(page, /STRENGTH_LINE_MAX_WIDTH = 8\.2/);
 });
 
 test("v60 wires direct cross-yen sources into self-correcting synthetic histories without replacing formal rates", async () => {

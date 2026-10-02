@@ -41,13 +41,17 @@ function validRate(price: unknown, timestamp: unknown): DirectRate | null {
 }
 
 function latestChartRate(chart: YahooChart | undefined): DirectRate | null {
+  // Yahoo's meta quote can move between completed one-minute candles. Prefer it for the
+  // 10-second live snapshot; keep the latest 1m close as the fallback/reference source.
+  const live = validRate(chart?.meta?.regularMarketPrice, chart?.meta?.regularMarketTime);
+  if (live) return live;
   const timestamps = chart?.timestamp ?? [];
   const closes = chart?.indicators?.quote?.[0]?.close ?? [];
   for (let index = Math.min(timestamps.length, closes.length) - 1; index >= 0; index -= 1) {
     const rate = validRate(closes[index], timestamps[index]);
     if (rate) return rate;
   }
-  return validRate(chart?.meta?.regularMarketPrice, chart?.meta?.regularMarketTime);
+  return null;
 }
 
 async function fetchYahooRate(code: DirectCode): Promise<DirectRate | null> {
