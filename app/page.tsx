@@ -2623,7 +2623,6 @@ export default function Home() {
               const rate = rates[pair.code];
               const rateSource = rateSources[pair.code];
               const useSyntheticDisplay = rateSource === "OANDA_SYNTHETIC";
-              const useYahooFallback = false;
               const visibleRate = rate;
               const failed = errors[pair.code];
               const displayFailed = Boolean(failed && !visibleRate);
