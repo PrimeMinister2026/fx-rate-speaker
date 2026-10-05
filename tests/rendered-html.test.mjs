@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v83<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v84<\/title>/i.test(html),
     "rendered output should contain preview metadata or the production v82 title",
   );
 });
@@ -321,17 +321,34 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v83 keeps the app version in one source file", async () => {
+test("v84 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 83/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 84/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(layout, /FX_RATE_SPEAKER_TITLE/);
-  assert.doesNotMatch(page, /<strong>v83<\/strong>/);
-  assert.doesNotMatch(layout, /FX Rate Speaker v83/);
+  assert.doesNotMatch(page, /<strong>v84<\/strong>/);
+  assert.doesNotMatch(layout, /FX Rate Speaker v84/);
+});
+
+test("v84 shows a scheduled market notice and provides local editable management", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(page, /ロンドン勢注意・ポジション解消/);
+  assert.match(page, /ロンドン勢開始/);
+  assert.match(page, /activeMarketNotice\(marketNotices, currentTime\)/);
+  assert.match(page, /MARKET_NOTICE_STORAGE_KEY/);
+  assert.match(page, /時間帯メッセージ管理/);
+  assert.match(page, /toggleMarketNoticeWeekday/);
+  assert.match(page, /addMarketNotice/);
+  assert.match(page, /currentMarketNotice\?\.message \|\| fallbackMarketProverb/);
+  assert.match(styles, /\.brand-title-row/);
+  assert.match(styles, /\.main-action\.compact/);
+  assert.match(styles, /\.market-notice/);
+  assert.match(styles, /\.notice-admin/);
 });
 
 test("v82 exposes OANDA health diagnostics and live connection status", async () => {

@@ -91,6 +91,7 @@ const OANDA_SHADOW_STORAGE_KEY = "fx-rate-speaker-oanda-shadow-v1";
 const OANDA_PRIMARY_STALE_MS = 60 * 1000;
 const OANDA_SHADOW_MAX_RECORDS = 5000;
 const SYNTHETIC_STORAGE_KEY = "fx-rate-speaker-synthetic-learning-v1";
+const MARKET_NOTICE_STORAGE_KEY = "fx-rate-speaker-market-notices-v1";
 const CALENDAR_AMBER_MINUTES = 30;
 const CALENDAR_ORANGE_MINUTES = 10;
 const CALENDAR_RED_MINUTES = 5;
@@ -195,6 +196,40 @@ type FlowSnapshot = {
   recent: Direction;
 };
 
+type MarketNotice = {
+  id: string;
+  message: string;
+  start: string;
+  end: string;
+  weekdays: number[];
+};
+
+const WEEKDAYS = [
+  { value: 1, label: "月" }, { value: 2, label: "火" }, { value: 3, label: "水" },
+  { value: 4, label: "木" }, { value: 5, label: "金" }, { value: 6, label: "土" },
+  { value: 0, label: "日" },
+] as const;
+const WEEKDAYS_ONLY = [1, 2, 3, 4, 5];
+const DEFAULT_MARKET_NOTICES: MarketNotice[] = [
+  { id: "monday-open", message: "週明けの窓・流動性注意", start: "07:00", end: "09:00", weekdays: [1] },
+  { id: "tokyo-open", message: "東京勢開始・初動に注意", start: "08:50", end: "09:20", weekdays: WEEKDAYS_ONLY },
+  { id: "tokyo-fix", message: "仲値前後・ドル円の変動注意", start: "09:50", end: "10:10", weekdays: WEEKDAYS_ONLY },
+  { id: "london-pre", message: "ロンドン勢注意・ポジション解消", start: "15:00", end: "16:00", weekdays: WEEKDAYS_ONLY },
+  { id: "london-open", message: "ロンドン勢開始", start: "16:00", end: "16:30", weekdays: WEEKDAYS_ONLY },
+  { id: "new-york-pre", message: "米指標・NY前の値動き注意", start: "20:20", end: "20:40", weekdays: WEEKDAYS_ONLY },
+  { id: "new-york-open", message: "ニューヨーク勢開始・指標注意", start: "21:20", end: "22:10", weekdays: WEEKDAYS_ONLY },
+  { id: "london-fix", message: "ロンドンフィックス前後注意", start: "23:50", end: "00:10", weekdays: WEEKDAYS_ONLY },
+  { id: "friday-close", message: "週末ポジション調整注意", start: "23:30", end: "23:59", weekdays: [5] },
+];
+const MARKET_PROVERBS = [
+  "休むも相場",
+  "待つも相場",
+  "相場は明日もある",
+  "利食い千人力",
+  "頭と尻尾はくれてやれ",
+  "人の行く裏に道あり花の山",
+];
+
 const AUDIO_MODE_STORAGE_KEY = "fx-rate-speaker-audio-mode";
 
 function spokenPrice(price: number, yen: boolean) {
@@ -247,6 +282,40 @@ function formatLiveDateTime(timestamp: number) {
     year: "numeric",
   }).formatToParts(timestamp).map((part) => [part.type, part.value]));
   return `${parts.hour}:${parts.minute}:${parts.second} ${parts.weekday} ${parts.day} ${parts.month} ${parts.year}`;
+}
+
+function marketClock(timestamp: number) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Tokyo",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(timestamp).map((part) => [part.type, part.value]));
+  const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(parts.weekday);
+  return { weekday, minute: Number(parts.hour) * 60 + Number(parts.minute) };
+}
+
+function timeToMinute(value: string) {
+  const [hour, minute] = value.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+function activeMarketNotice(notices: MarketNotice[], timestamp: number) {
+  const now = marketClock(timestamp);
+  return notices.find((notice) => {
+    if (!notice.weekdays.includes(now.weekday)) return false;
+    const start = timeToMinute(notice.start);
+    const end = timeToMinute(notice.end);
+    return start <= end
+      ? now.minute >= start && now.minute < end
+      : now.minute >= start || now.minute < end;
+  }) ?? null;
+}
+
+function fallbackMarketProverb(timestamp: number) {
+  const { weekday, minute } = marketClock(timestamp);
+  return MARKET_PROVERBS[(weekday + Math.floor(minute / 30)) % MARKET_PROVERBS.length];
 }
 
 function movementLabel(state?: MovementState) {
@@ -608,6 +677,9 @@ export default function Home() {
   const [detail, setDetail] = useState("");
   const [remainingSeconds, setRemainingSeconds] = useState(AUTO_STOP_SECONDS);
   const [currentTime, setCurrentTime] = useState(() => Date.now());
+  const [marketNotices, setMarketNotices] = useState<MarketNotice[]>(DEFAULT_MARKET_NOTICES);
+  const [marketNoticeAdminOpen, setMarketNoticeAdminOpen] = useState(false);
+  const [marketNoticesLoaded, setMarketNoticesLoaded] = useState(false);
   const [syntheticStatuses, setSyntheticStatuses] = useState<Record<string, SyntheticStatus>>({});
   const runningRef = useRef(false);
   const togglingRef = useRef(false);
@@ -659,6 +731,47 @@ export default function Home() {
   const previousStrengthScoresRef = useRef<Partial<Record<number, CurrencyStrength>>>({});
   const strengthTrendHistoryRef = useRef<Record<number, Record<string, number[]>>>({});
   const [strengthDisplayScores, setStrengthDisplayScores] = useState<Record<number, Record<string, number>>>({});
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(MARKET_NOTICE_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as MarketNotice[];
+        if (Array.isArray(parsed)) setMarketNotices(parsed);
+      }
+    } catch (error) {
+      console.warn("FX Rate Speaker market notice restore failed", error);
+    } finally {
+      setMarketNoticesLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!marketNoticesLoaded) return;
+    localStorage.setItem(MARKET_NOTICE_STORAGE_KEY, JSON.stringify(marketNotices));
+  }, [marketNotices, marketNoticesLoaded]);
+
+  function updateMarketNotice(id: string, changes: Partial<MarketNotice>) {
+    setMarketNotices((current) => current.map((notice) => notice.id === id ? { ...notice, ...changes } : notice));
+  }
+
+  function toggleMarketNoticeWeekday(id: string, weekday: number) {
+    setMarketNotices((current) => current.map((notice) => {
+      if (notice.id !== id) return notice;
+      const weekdays = notice.weekdays.includes(weekday)
+        ? notice.weekdays.filter((value) => value !== weekday)
+        : [...notice.weekdays, weekday];
+      return { ...notice, weekdays };
+    }));
+  }
+
+  function addMarketNotice() {
+    const id = `notice-${Date.now()}`;
+    setMarketNotices((current) => [
+      ...current,
+      { id, message: "新しい注意事項", start: "12:00", end: "12:30", weekdays: [...WEEKDAYS_ONLY] },
+    ]);
+  }
 
   function ensureAudio() {
     if (!audioRef.current) {
@@ -2266,6 +2379,8 @@ export default function Home() {
 
   const latestCommentary = [...commentaryHistory].sort((left, right) => right.timestamp - left.timestamp)[0];
   const visibleCommentaryHistory = selectVisibleHistory(commentaryHistory, currentTime);
+  const currentMarketNotice = activeMarketNotice(marketNotices, currentTime);
+  const marketMessage = currentMarketNotice?.message || fallbackMarketProverb(currentTime);
   const strengthResults = useMemo(() => Object.fromEntries(CURRENCY_STRENGTH_WINDOWS.map((windowSize) => [
     windowSize,
     calculateCurrencyStrength(sparklineHistories, windowSize),
@@ -2331,14 +2446,23 @@ export default function Home() {
         <aside className="control-column panel">
           <header className="brand-block">
             <p className="eyebrow">FX RATE SPEAKER</p>
-            <h1>FXレート読み上げ</h1>
+            <div className="brand-title-row">
+              <h1>FXレート読み上げ</h1>
+              <button className={`main-action compact ${running ? "stop" : "start"}`} onClick={() => { void toggleRunning(); }}>
+                {running ? "停止" : "開始"}<span>（Space）</span>
+              </button>
+            </div>
             <div className="brand-meta"><strong>{FX_RATE_SPEAKER_VERSION_LABEL}</strong><span className={running ? "live" : ""}>{status}</span></div>
           </header>
           {detail && <div className="error-banner" role="alert">{detail}</div>}
           <time className={`control-clock ${isClockAlertWindow(currentTime) ? "alert-window" : ""}`} dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>
-          <button className={`main-action ${running ? "stop" : "start"}`} onClick={() => { void toggleRunning(); }}>
-            {running ? "停止" : "開始"}（Space）
-          </button>
+          <section className={`market-notice ${currentMarketNotice ? "scheduled" : "proverb"}`} aria-live="polite">
+            <div className="market-notice-head">
+              <span>{currentMarketNotice ? `${currentMarketNotice.start}–${currentMarketNotice.end}` : "MARKET NOTE"}</span>
+              <button type="button" onClick={() => setMarketNoticeAdminOpen(true)}>管理</button>
+            </div>
+            <strong>{marketMessage}</strong>
+          </section>
           <div className="two-control-grid">
             <div className="setting-box">
               <span>モード</span>
@@ -2530,6 +2654,46 @@ export default function Home() {
           </div>
         </section>
       </div>
+      {marketNoticeAdminOpen && (
+        <div className="notice-admin-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.currentTarget === event.target) setMarketNoticeAdminOpen(false);
+        }}>
+          <section className="notice-admin" role="dialog" aria-modal="true" aria-labelledby="notice-admin-title">
+            <header>
+              <div><p>MARKET NOTICE</p><h2 id="notice-admin-title">時間帯メッセージ管理</h2></div>
+              <button type="button" onClick={() => setMarketNoticeAdminOpen(false)} aria-label="閉じる">×</button>
+            </header>
+            <p className="notice-admin-help">日本時間で判定します。上にある項目を優先し、該当しない時間は相場の格言を表示します。</p>
+            <div className="notice-admin-list">
+              {marketNotices.map((notice) => (
+                <article className="notice-admin-row" key={notice.id}>
+                  <input className="notice-message-input" value={notice.message} aria-label="表示メッセージ"
+                    onChange={(event) => updateMarketNotice(notice.id, { message: event.target.value })} />
+                  <div className="notice-time-row">
+                    <input type="time" value={notice.start} aria-label="開始時刻"
+                      onChange={(event) => updateMarketNotice(notice.id, { start: event.target.value })} />
+                    <span>〜</span>
+                    <input type="time" value={notice.end} aria-label="終了時刻"
+                      onChange={(event) => updateMarketNotice(notice.id, { end: event.target.value })} />
+                    <button className="notice-delete" type="button" onClick={() => setMarketNotices((current) => current.filter((item) => item.id !== notice.id))}>削除</button>
+                  </div>
+                  <div className="notice-weekdays" role="group" aria-label="表示曜日">
+                    {WEEKDAYS.map((day) => (
+                      <button type="button" key={day.value} className={notice.weekdays.includes(day.value) ? "chosen" : ""}
+                        onClick={() => toggleMarketNoticeWeekday(notice.id, day.value)}>{day.label}</button>
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+            <footer>
+              <button type="button" onClick={() => setMarketNotices(DEFAULT_MARKET_NOTICES.map((notice) => ({ ...notice, weekdays: [...notice.weekdays] })))}>初期候補に戻す</button>
+              <button className="notice-add" type="button" onClick={addMarketNotice}>＋ 項目を追加</button>
+              <button className="notice-done" type="button" onClick={() => setMarketNoticeAdminOpen(false)}>完了</button>
+            </footer>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
