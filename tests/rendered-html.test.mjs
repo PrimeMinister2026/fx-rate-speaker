@@ -32,8 +32,8 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v77<\/title>/i.test(html),
-    "rendered output should contain preview metadata or the production v77 title",
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v78<\/title>/i.test(html),
+    "rendered output should contain preview metadata or the production v78 title",
   );
 });
 
@@ -46,7 +46,7 @@ test("v67 keeps modes 2, 3 and 4 NEWS audio", async () => {
   assert.match(source, /async function playCommentaryAlert/);
   assert.match(source, /\[987\.77, 1975\.54\][\s\S]*\[659\.25, 1318\.5\]/);
   assert.match(source, /commentary\.source === "NEWS"[\s\S]*"PRICE_RAPID"/);
-  assert.match(source, /<strong>v77<\/strong>/);
+  assert.match(source, /<strong>v78<\/strong>/);
   assert.match(source, />4 NEWS<\/button>/);
   assert.match(source, /audioModeRef\.current !== "mode4"/);
   assert.match(source, /NEWS_POLL_INTERVAL_MS = 60 \* 1000/);
@@ -321,16 +321,14 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v74 renders movement or S/S+ immediately before the rate on the same baseline", async () => {
+test("v78 shows adopted synthetic quotes in gray and removes S/S+ badges", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(page, /className="rate-value-line"[\s\S]*movementSymbol\(movement\)[\s\S]*synthetic-badge[\s\S]*className="rate-value"/);
-  assert.doesNotMatch(page, /className="rate-status-slot"/);
-  assert.match(styles, /\.rate-value-line \{[^}]*align-items:baseline[^}]*justify-content:flex-end/);
-  assert.match(styles, /\.rate-value \{[^}]*clamp\(24px,1\.95vw,28px\)/);
-  assert.match(styles, /\.movement \{[^}]*font-size:14px/);
-  assert.match(styles, /\.synthetic-badge \{[^}]*font-size:7px/);
-  assert.match(styles, /\.synthetic-badge \{[^}]*border:0/);
+  assert.match(page, /const useSyntheticDisplay = SYNTHETIC_SYMBOLS\.includes/);
+  assert.match(page, /const visibleRate = useSyntheticDisplay \? syntheticRate : rate/);
+  assert.match(page, /className=\{`rate-value \$\{useSyntheticDisplay \? "synthetic" : ""\}`\}/);
+  assert.doesNotMatch(page, /className=\{`synthetic-badge/);
+  assert.match(styles, /\.rate-value\.synthetic \{ color:#9aa0a8; \}/);
 });
 
 test("v60 wires direct cross-yen sources into self-correcting synthetic histories without replacing formal rates", async () => {

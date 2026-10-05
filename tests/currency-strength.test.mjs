@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   STRENGTH_PAIR_CODES,
   calculateCurrencyStrength,
+  pairPeriodSignal,
 } from "../lib/currency-strength.ts";
 
 const currencies = ["USD", "JPY", "EUR", "GBP", "AUD"];
@@ -111,6 +112,22 @@ test("strength v2 suppresses directionless noise compared with a clean trend", (
   assert.ok(Math.abs(cleanResult.pairScores["USD/JPY"]) >= Math.abs(noisyResult.pairScores["USD/JPY"]));
 });
 
+
+test("flat ticks do not count against directional persistence", () => {
+  const history = [
+    { price: 1.0000, timestamp: 0 },
+    { price: 0.9999, timestamp: 10_000 },
+    { price: 0.9999, timestamp: 20_000 },
+    { price: 0.9998, timestamp: 30_000 },
+    { price: 0.9998, timestamp: 40_000 },
+    { price: 0.9997, timestamp: 50_000 },
+    { price: 0.9997, timestamp: 60_000 },
+  ];
+  const signal = pairPeriodSignal(history, 7);
+  assert.equal(signal.direction, -1);
+  assert.equal(signal.continuation, -1);
+  assert.ok(signal.quality > 0.5);
+});
 
 test("strength v2.1 expands persistent long-window separation more than the 7-point window", () => {
   const histories = historiesFromCurrencySlopes({ USD: .000015, JPY: -.000015, EUR: .000002, GBP: 0, AUD: -.000002 }, 60);
