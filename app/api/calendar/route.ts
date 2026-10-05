@@ -74,6 +74,7 @@ export async function GET() {
       }
     }
 
+    if (!source) throw new Error("calendar unavailable");
     const now = Date.now();
     const events = source.flatMap((item) => {
       const currency = (item.country ?? "").toUpperCase();
