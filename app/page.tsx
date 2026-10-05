@@ -2623,7 +2623,7 @@ export default function Home() {
               const rate = rates[pair.code];
               const rateSource = rateSources[pair.code];
               const useSyntheticDisplay = rateSource === "OANDA_SYNTHETIC";
-              const useYahooFallback = rateSource === "YAHOO";
+              const useYahooFallback = false;
               const visibleRate = rate;
               const failed = errors[pair.code];
               const displayFailed = Boolean(failed && !visibleRate);
@@ -2661,8 +2661,8 @@ export default function Home() {
                       {movement !== "NORMAL" && (
                         <span className={`movement ${movement}`} title={movementLabel(movement)} aria-label={movementLabel(movement)}>{movementSymbol(movement)}</span>
                       )}
-                      <div className={`rate-value ${useSyntheticDisplay ? "synthetic" : useYahooFallback ? "fallback" : ""}`}
-                        title={useSyntheticDisplay ? "OANDA Syntheticレート" : useYahooFallback ? "Yahoo予備レート" : "OANDA直接レート"}>
+                      <div className={`rate-value ${useSyntheticDisplay ? "synthetic" : ""}`}
+                        title={useSyntheticDisplay ? "OANDA Syntheticレート" : rateSource === "YAHOO" ? "Yahooレート" : "OANDA直接レート"}>
                         {displayFailed ? "取得失敗" : visibleRate ? displayPrice(visibleRate.price, pair.yen) : "---"}
                       </div>
                     </div>
