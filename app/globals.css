@@ -210,3 +210,8 @@ button.chosen { border-color:var(--gold); background:#392d0c; color:#fff1b2; box
   .latest-zone { min-height:320px; }
   .history-feed { max-height:330px; }
 }
+
+.oanda-status { font-weight:800; }
+.oanda-status.connected { color:#65dfa6; }
+.oanda-status.checking { color:#d7cda9; }
+.oanda-status.unconfigured,.oanda-status.error,.oanda-status.fallback { color:#c6a657; }
