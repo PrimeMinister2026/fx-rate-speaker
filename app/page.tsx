@@ -1028,6 +1028,7 @@ export default function Home() {
         notification: null,
         state: "NORMAL",
         recentMove: recentMovePips(currentHistory, pipSize, 6),
+        rapidMovePips: null,
       };
     }
     rateHistoryRef.current[code] = appended.history;
@@ -1037,6 +1038,7 @@ export default function Home() {
         notification: null,
         state: existingTracker.state,
         recentMove: recentMovePips(appended.history, pipSize, 6),
+        rapidMovePips: null,
       };
     }
     const transition = transitionMovement(existingTracker, analysis.candidate);
@@ -1057,10 +1059,14 @@ export default function Home() {
       volatilitySamples: `${analysis.thresholds.sampleCount}/${VOLATILITY_WINDOW}`,
       windows: `${RAPID_SHORT_WINDOW}/${RAPID_LONG_WINDOW}`,
     });
+    const rapidMovePips = transition.notification === "RAPID_UP" || transition.notification === "RAPID_DOWN"
+      ? Math.max(Math.abs(analysis.short.netPips), Math.abs(analysis.long.netPips))
+      : null;
     return {
       notification: transition.notification,
       state: transition.tracker.state,
       recentMove: analysis.thresholds.recentMove,
+      rapidMovePips,
     };
   }
 
@@ -1412,7 +1418,7 @@ export default function Home() {
       return {
         pair: code,
         kind: "急変",
-        text: `急変です。${flowCommentary(name, flow, movement.state)}`,
+        text: `急変です。${name}、直近約${(movement.rapidMovePips ?? 0).toFixed(1)}pips動いています。 ${flowCommentary(name, flow, movement.state)}`,
         level: "rapid",
         eventKey: movement.notification,
         priority: 100,
