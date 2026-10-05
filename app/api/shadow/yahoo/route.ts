@@ -44,6 +44,16 @@ function latestChartRate(chart: YahooChart | undefined): Rate | null {
   return null;
 }
 
+function latestOneMinuteClose(chart: YahooChart | undefined): Rate | null {
+  const timestamps = chart?.timestamp ?? [];
+  const closes = chart?.indicators?.quote?.[0]?.close ?? [];
+  for (let index = Math.min(timestamps.length, closes.length) - 1; index >= 0; index -= 1) {
+    const rate = validRate(closes[index], timestamps[index]);
+    if (rate) return rate;
+  }
+  return null;
+}
+
 function chartCloses(chart: YahooChart | undefined): Map<number, number> {
   const out = new Map<number, number>();
   const timestamps = chart?.timestamp ?? [];
@@ -130,6 +140,26 @@ export async function GET() {
     if (latest) direct[pair] = latest;
   }
 
+  const basePairs: Pair[] = ["USD/JPY", "EUR/USD", "GBP/USD", "AUD/USD"];
+  const baseDiagnostics = basePairs.map((pair) => {
+    const chart = charts[pair];
+    const live = validRate(chart?.meta?.regularMarketPrice, chart?.meta?.regularMarketTime);
+    const close = latestOneMinuteClose(chart);
+    if (!live || !close) return { pair, available: false };
+    const deltaPips = (live.price - close.price) / pipSize(pair);
+    return {
+      pair,
+      available: true,
+      regularMarketPrice: live.price,
+      regularMarketTime: live.timestamp,
+      latest1mClose: close.price,
+      latest1mCloseTimestamp: close.timestamp,
+      liveMinusLatest1mClosePips: deltaPips,
+      absLiveMinusLatest1mClosePips: Math.abs(deltaPips),
+      timestampSkewSec: live.timestamp - close.timestamp,
+    };
+  });
+
   const comparePairs: Pair[] = ["EUR/JPY", "GBP/JPY", "AUD/JPY", "EUR/GBP", "EUR/AUD", "GBP/AUD"];
 
   const comparisons = comparePairs.map((pair) => {
@@ -191,8 +221,16 @@ export async function GET() {
 
   return Response.json({
     purpose: "Yahoo direct-vs-4-base synthetic consistency shadow audit",
-    basePairs: ["USD/JPY", "EUR/USD", "GBP/USD", "AUD/USD"],
+    basePairs,
     direct,
+    baseDiagnostics,
+    baseDiagnosticsRankedByAbsLiveVs1mPips: [...baseDiagnostics]
+      .filter((item) => item.available && "absLiveMinusLatest1mClosePips" in item)
+      .sort((a, b) => {
+        const left = "absLiveMinusLatest1mClosePips" in a ? Number(a.absLiveMinusLatest1mClosePips) : -1;
+        const right = "absLiveMinusLatest1mClosePips" in b ? Number(b.absLiveMinusLatest1mClosePips) : -1;
+        return right - left;
+      }),
     comparisons,
     rankedByAbsDeltaPips: rank(comparisons),
     syncedComparisons,
