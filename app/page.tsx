@@ -394,7 +394,26 @@ function strengthVisual(difference: number) {
   };
 }
 
-function trendAwareStrengthDifference(history: number[]) {
+function trendAwareStrengthDifference(history: number[], windowSize: number) {
+  if (windowSize <= 7) {
+    if (!history.length) return 0;
+    const current = history.at(-1) ?? 0;
+    const recent = history.slice(-3);
+    const significant = recent.filter((value) => Math.abs(value) >= STRENGTH_SIGNIFICANT_DIFFERENCE);
+    if (significant.length < 2) return current * 0.20;
+
+    const positive = significant.filter((value) => value > 0);
+    const negative = significant.filter((value) => value < 0);
+    const dominant = positive.length >= negative.length ? positive : negative;
+    if (dominant.length < 2) return current * 0.25;
+
+    const magnitudes = dominant.map((value) => Math.abs(value)).sort((a, b) => a - b);
+    const sustained = magnitudes[Math.floor(magnitudes.length / 2)] ?? 0;
+    const sign = dominant[0] > 0 ? 1 : -1;
+    const consistency = dominant.length / significant.length;
+    const live = Math.sign(current) === sign ? Math.abs(current) : 0;
+    return sign * Math.max(sustained * (0.60 + consistency * 0.25), live * 0.55);
+  }
   if (!history.length) return 0;
   const current = history.at(-1) ?? 0;
   const significant = history.filter((value) => Math.abs(value) >= STRENGTH_SIGNIFICANT_DIFFERENCE);
@@ -2162,7 +2181,7 @@ export default function Home() {
         const rawDifference = result.pairScores[pairCode] ?? 0;
         const nextHistory = [...(windowHistory[pairCode] ?? []), rawDifference].slice(-historyLimit);
         nextWindowHistory[pairCode] = nextHistory;
-        nextWindowDisplay[pairCode] = result.ready ? trendAwareStrengthDifference(nextHistory) : 0;
+        nextWindowDisplay[pairCode] = result.ready ? trendAwareStrengthDifference(nextHistory, windowSize) : 0;
       });
 
       strengthTrendHistoryRef.current[windowSize] = nextWindowHistory;
@@ -2210,7 +2229,7 @@ export default function Home() {
           <header className="brand-block">
             <p className="eyebrow">FX RATE SPEAKER</p>
             <h1>FXレート読み上げ</h1>
-            <div className="brand-meta"><strong>v76</strong><span className={running ? "live" : ""}>{status}</span></div>
+            <div className="brand-meta"><strong>v77</strong><span className={running ? "live" : ""}>{status}</span></div>
           </header>
           {detail && <div className="error-banner" role="alert">{detail}</div>}
           <time className={`control-clock ${isClockAlertWindow(currentTime) ? "alert-window" : ""}`} dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>
