@@ -109,6 +109,26 @@ function syntheticFromRates(pair: Pair, direct: Partial<Record<Pair, Rate>>) {
   };
 }
 
+function reverseFormula(pair: Pair): { left: Pair; right: Pair; operation: "divide" } | null {
+  if (pair === "EUR/USD") return { left: "EUR/JPY", right: "USD/JPY", operation: "divide" };
+  if (pair === "GBP/USD") return { left: "GBP/JPY", right: "USD/JPY", operation: "divide" };
+  if (pair === "AUD/USD") return { left: "AUD/JPY", right: "USD/JPY", operation: "divide" };
+  return null;
+}
+
+function reverseSyntheticFromRates(pair: Pair, direct: Partial<Record<Pair, Rate>>) {
+  const spec = reverseFormula(pair);
+  if (!spec) return null;
+  const left = direct[spec.left];
+  const right = direct[spec.right];
+  if (!left || !right || right.price === 0) return null;
+  return {
+    price: left.price / right.price,
+    timestamp: Math.min(left.timestamp, right.timestamp),
+    sourceTimestampSpreadSec: Math.abs(left.timestamp - right.timestamp),
+  };
+}
+
 function latestCommonTimestamp(maps: Array<Map<number, number>>): number | null {
   if (maps.length === 0) return null;
   const candidates = [...maps[0].keys()].sort((a, b) => b - a);
@@ -157,6 +177,58 @@ export async function GET() {
       liveMinusLatest1mClosePips: deltaPips,
       absLiveMinusLatest1mClosePips: Math.abs(deltaPips),
       timestampSkewSec: live.timestamp - close.timestamp,
+    };
+  });
+
+  const reverseBasePairs: Pair[] = ["EUR/USD", "GBP/USD", "AUD/USD"];
+  const reverseBaseComparisons = reverseBasePairs.map((pair) => {
+    const actual = direct[pair];
+    const calc = reverseSyntheticFromRates(pair, direct);
+    if (!actual || !calc) return { pair, available: false };
+    const deltaPips = (actual.price - calc.price) / pipSize(pair);
+    return {
+      pair,
+      available: true,
+      directPrice: actual.price,
+      reverseSyntheticPrice: calc.price,
+      deltaPips,
+      absDeltaPips: Math.abs(deltaPips),
+      directTimestamp: actual.timestamp,
+      reverseSyntheticTimestamp: calc.timestamp,
+      directVsReverseSyntheticTimestampSkewSec: actual.timestamp - calc.timestamp,
+      sourceTimestampSpreadSec: calc.sourceTimestampSpreadSec,
+    };
+  });
+
+  const reverseBaseSyncedComparisons = reverseBasePairs.map((pair) => {
+    const spec = reverseFormula(pair);
+    if (!spec) return { pair, available: false };
+    const pairMap = closes[pair];
+    const leftMap = closes[spec.left];
+    const rightMap = closes[spec.right];
+    if (!pairMap || !leftMap || !rightMap) return { pair, available: false };
+    const timestamp = latestCommonTimestamp([pairMap, leftMap, rightMap]);
+    if (timestamp === null) return { pair, available: false };
+    const directPrice = pairMap.get(timestamp);
+    const leftPrice = leftMap.get(timestamp);
+    const rightPrice = rightMap.get(timestamp);
+    if (!Number.isFinite(directPrice) || !Number.isFinite(leftPrice) || !Number.isFinite(rightPrice) || Number(rightPrice) === 0) {
+      return { pair, available: false };
+    }
+    const reverseSyntheticPrice = Number(leftPrice) / Number(rightPrice);
+    const deltaPips = (Number(directPrice) - reverseSyntheticPrice) / pipSize(pair);
+    return {
+      pair,
+      available: true,
+      timestamp,
+      directPrice: Number(directPrice),
+      reverseSyntheticPrice,
+      deltaPips,
+      absDeltaPips: Math.abs(deltaPips),
+      leftCrossPair: spec.left,
+      leftCrossPrice: Number(leftPrice),
+      rightBasePair: spec.right,
+      rightBasePrice: Number(rightPrice),
     };
   });
 
@@ -231,6 +303,11 @@ export async function GET() {
         const right = "absLiveMinusLatest1mClosePips" in b ? Number(b.absLiveMinusLatest1mClosePips) : -1;
         return right - left;
       }),
+    reverseBaseComparisons,
+    reverseBaseRankedByAbsDeltaPips: rank(reverseBaseComparisons),
+    reverseBaseSyncedComparisons,
+    reverseBaseSyncedRankedByAbsDeltaPips: rank(reverseBaseSyncedComparisons),
+    reverseBaseMeaning: "EUR/USD, GBP/USD and AUD/USD direct Yahoo quotes are compared with JPY-cross-derived synthetic values.",
     comparisons,
     rankedByAbsDeltaPips: rank(comparisons),
     syncedComparisons,
