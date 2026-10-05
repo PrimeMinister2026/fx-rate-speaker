@@ -649,7 +649,6 @@ export default function Home() {
   const oandaEventSourceRef = useRef<EventSource | null>(null);
   const oandaLiveRef = useRef<RateMap>({});
   const yahooRatesRef = useRef<RateMap>({});
-  const rateSourcesRef = useRef<Record<string, RateSource>>({});
   const syntheticLearningRef = useRef<Record<string, SyntheticLearningState>>({});
   const rawSyntheticHistoryRef = useRef<Record<string, SyntheticPoint[]>>({});
   const syntheticOutputHistoryRef = useRef<Record<string, Rate[]>>({});
@@ -1706,7 +1705,6 @@ export default function Home() {
       }
     });
     ratesRef.current = adopted;
-    rateSourcesRef.current = sources;
     setRates(adopted);
     setRateSources(sources);
     return adopted;
