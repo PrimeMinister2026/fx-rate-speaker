@@ -71,10 +71,21 @@ export function pairPeriodSignal(history: StrengthPoint[], windowSize: number) {
   const meanAbsoluteReturn = mean(returns.map((value) => Math.abs(value)));
   const pathLength = returns.reduce((sum, value) => sum + Math.abs(value), 0);
   const efficiency = pathLength > EPSILON ? Math.abs(totalReturn) / pathLength : 0;
-  const directionBalance = returns.length
-    ? returns.reduce((sum, value) => sum + Math.sign(value), 0) / returns.length
+  const signedMoves = returns.map((value) => Math.sign(value)).filter((value) => value !== 0);
+  const directionBalance = signedMoves.length
+    ? signedMoves.reduce((sum, value) => sum + value, 0) / signedMoves.length
     : 0;
-  const quality = clamp(efficiency * 0.55 + Math.abs(directionBalance) * 0.45, 0, 1);
+  const activityConfidence = clamp(
+    signedMoves.length / Math.max(3, Math.ceil(returns.length * 0.15)),
+    0,
+    1,
+  );
+  const quality = clamp(
+    (efficiency * 0.45 + Math.abs(directionBalance) * 0.35 + activityConfidence * 0.20)
+      * (0.65 + activityConfidence * 0.35),
+    0,
+    1,
+  );
 
   const split = Math.max(1, Math.floor(returns.length * 0.6));
   const earlier = returns.slice(0, split);
