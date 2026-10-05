@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v90<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v91<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
