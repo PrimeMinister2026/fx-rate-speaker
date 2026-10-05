@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v84<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v85<\/title>/i.test(html),
     "rendered output should contain preview metadata or the production v82 title",
   );
 });
@@ -72,7 +72,8 @@ test("v60 still defaults to mode 3 and renders clickable 30-point retained-histo
   assert.match(source, /<FlowDirection label="30" direction=\{chartDirection\}/);
   assert.match(source, /<FlowDirection label="15" direction=\{midDirection\}/);
   assert.match(source, /<FlowDirection label="7" direction=\{recentDirection\}/);
-  assert.match(source, /movement === "NORMAL"[\s\S]*synthetic-badge/);
+  assert.match(source, /const useSyntheticDisplay = rateSource === "OANDA_SYNTHETIC"/);
+  assert.match(source, /rate-value \$\{useSyntheticDisplay \? "synthetic"/);
   assert.match(styles, /grid-template-columns:minmax\(240px,25fr\) minmax\(360px,30fr\) minmax\(450px,45fr\)/);
   assert.match(styles, /--gold:#f4bd3f/);
   assert.match(styles, /\.spark-recent-path/);
@@ -195,10 +196,10 @@ test("v67 renders four ten-pair currency-strength pentagons and compact controls
   assert.match(strength, /CURRENCY_STRENGTH_WINDOWS = \[60, 30, 15, 7\]/);
   assert.match(strength, /STRENGTH_VERTEX_ORDER = \["USD", "JPY", "AUD", "GBP", "EUR"\]/);
   assert.match(strength, /Math\.log\(point\.price\)/);
-  assert.match(strength, /rank: 0\.35, agreement: 0\.30, continuation: 0\.20, magnitude: 0\.15/);
+  assert.match(strength, /rank: 0\.35, agreement: 0\.30, continuation: 0\.25, magnitude: 0\.10/);
   assert.match(strength, /componentTotals\[base\]\.agreement \+= signedQuality;[\s\S]*componentTotals\[quote\]\.agreement -= signedQuality/);
   assert.match(strength, /usedPairs < STRENGTH_PAIR_CODES\.length/);
-  assert.match(strength, /clamp\(50 \+ composite \* SCORE_SPAN, 0, 100\)/);
+  assert.match(strength, /clamp\(50 \+ composite \* scoreSpan\(windowSize\), 0, 100\)/);
   assert.match(page, /STRENGTH_PAIR_CODES\.map[\s\S]*data-pair=\{pairCode\}/);
   assert.match(page, /<linearGradient[\s\S]*stopColor=\{baseColor\}[\s\S]*stopColor=\{quoteColor\}/);
   assert.doesNotMatch(page, /magnitude < 6|magnitude >= 18/);
@@ -212,7 +213,7 @@ test("v67 renders four ten-pair currency-strength pentagons and compact controls
   assert.match(page, /event\.key === "m" \|\| event\.key === "M"/);
   assert.match(page, /applySoundEnabled\(!soundOnRef\.current\)/);
   assert.doesNotMatch(page, /LIVE COMMENTARY|実況・NEWS履歴|重要指標予定|MEMO/);
-  assert.match(page, /movement === "NORMAL" && SYNTHETIC_SYMBOLS/);
+  assert.match(page, /rateSource === "OANDA_SYNTHETIC"/);
   assert.match(page, /calendarProximityClass\(minutes\)/);
   assert.match(styles, /\.strength-grid \{[^}]*grid-template-columns:repeat\(2/);
   assert.match(styles, /@media \(prefers-reduced-motion:reduce\)/);
@@ -241,7 +242,7 @@ test("v69 prefers live Yahoo meta quotes and prevents stale synthetic graph reus
   const route = await readFile(new URL("../app/api/rates/route.ts", import.meta.url), "utf8");
   assert.match(route, /const live = validRate\(chart\?\.meta\?\.regularMarketPrice, chart\?\.meta\?\.regularMarketTime\);[\s\S]*if \(live\) return live;/);
   assert.match(page, /delete latestSyntheticRef\.current\[symbol\]/);
-  assert.match(page, /synthetic\.timestamp >= direct\.timestamp - 20/);
+  assert.match(page, /if \(!rawPoint\)[\s\S]*delete latestSyntheticRef\.current\[symbol\]/);
   assert.match(page, /STRENGTH_VISUAL_MAX_DIFFERENCE = 18/);
   assert.match(page, /STRENGTH_VISUAL_EXPONENT = 1\.55/);
   assert.match(page, /const color = normalized \*\* 1\.05/);
@@ -257,7 +258,7 @@ test("v70 uses trend-aware strength persistence and keeps status immediately lef
   assert.match(page, /consecutive/);
   assert.match(page, /strengthTrendHistoryRef/);
   assert.match(page, /displayPairScores=\{strengthDisplayScores\[windowSize\]/);
-  assert.match(page, /className="rate-value-line"[\s\S]*movementSymbol\(movement\)[\s\S]*synthetic-badge[\s\S]*className="rate-value"/);
+  assert.match(page, /className="rate-value-line"[\s\S]*movementSymbol\(movement\)[\s\S]*className=\{`rate-value/);
   assert.match(styles, /\.rate-value-line \{[^}]*display:flex[^}]*align-items:baseline[^}]*justify-content:flex-end/);
   assert.match(styles, /\.rate-value \{[^}]*clamp\(24px,1\.95vw,28px\)/);
   assert.match(styles, /\.synthetic-badge \{[^}]*border:0[^}]*background:transparent[^}]*font-size:7px/);
@@ -278,7 +279,7 @@ test("v73 uses strong red clock danger windows at 50:00-05:00 and 20:00-35:00", 
 test("v72 inline status intent is preserved by the current rate layout", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(page, /className="rate-value-line"[\s\S]*movementSymbol\(movement\)[\s\S]*synthetic-badge[\s\S]*className="rate-value"/);
+  assert.match(page, /className="rate-value-line"[\s\S]*movementSymbol\(movement\)[\s\S]*className=\{`rate-value/);
   assert.doesNotMatch(page, /className="rate-status-slot"/);
   assert.match(styles, /\.rate-value-line \{[^}]*display:flex[^}]*align-items:baseline[^}]*justify-content:flex-end[^}]*gap:5px/);
   assert.match(styles, /\.rate-value \{[^}]*flex:0 0 auto[^}]*width:auto/);
@@ -302,7 +303,7 @@ test("v77 uses window-specific currency-strength v2.1 weighting", async () => {
   assert.match(strength, /function windowWeights/);
   assert.match(strength, /rank: 0\.40, agreement: 0\.30, continuation: 0\.25, magnitude: 0\.05, acceleration: 0/);
   assert.match(strength, /rank: 0\.25, agreement: 0\.30, continuation: 0\.25, magnitude: 0\.15, acceleration: 0\.05/);
-  assert.match(strength, /efficiency \* 0\.55 \+ Math\.abs\(directionBalance\) \* 0\.45/);
+  assert.match(strength, /efficiency \* 0\.45 \+ Math\.abs\(directionBalance\) \* 0\.35 \+ activityConfidence \* 0\.20/);
   assert.match(strength, /attachMagnitudeRanks/);
   assert.match(strength, /components\.acceleration/);
   assert.match(strength, /if \(windowSize >= 60\) return 48/);
@@ -321,33 +322,39 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v84 keeps the app version in one source file", async () => {
+test("v85 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 84/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 85/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(layout, /FX_RATE_SPEAKER_TITLE/);
-  assert.doesNotMatch(page, /<strong>v84<\/strong>/);
-  assert.doesNotMatch(layout, /FX Rate Speaker v84/);
+  assert.doesNotMatch(page, /<strong>v85<\/strong>/);
+  assert.doesNotMatch(layout, /FX Rate Speaker v85/);
 });
 
-test("v84 shows a scheduled market notice and provides local editable management", async () => {
+test("v85 rotates proverbs every five minutes and highlights scheduled market notices", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(page, /ロンドン勢注意・ポジション解消/);
-  assert.match(page, /ロンドン勢開始/);
+  assert.match(page, /LDN勢参入前・ポジション解消注意/);
+  assert.match(page, /LDN勢参入・初動と欧州通貨に注意/);
+  assert.match(page, /TKY勢参入前・初動準備/);
+  assert.match(page, /NY勢参入・初動と逆流に注意/);
   assert.match(page, /activeMarketNotice\(marketNotices, currentTime\)/);
   assert.match(page, /MARKET_NOTICE_STORAGE_KEY/);
   assert.match(page, /時間帯メッセージ管理/);
   assert.match(page, /toggleMarketNoticeWeekday/);
   assert.match(page, /addMarketNotice/);
   assert.match(page, /currentMarketNotice\?\.message \|\| fallbackMarketProverb/);
+  assert.match(page, /Math\.floor\(minute \/ 5\)/);
   assert.match(styles, /\.brand-title-row/);
   assert.match(styles, /\.main-action\.compact/);
   assert.match(styles, /\.market-notice/);
+  assert.match(styles, /\.market-notice\.scheduled \{[^}]*background:linear-gradient[^}]*color:#fff/);
+  assert.match(styles, /0%,48% \{ color:#fff/);
+  assert.match(styles, /49%,100% \{ color:#fff/);
   assert.match(styles, /\.notice-admin/);
 });
 

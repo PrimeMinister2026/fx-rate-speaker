@@ -91,7 +91,7 @@ const OANDA_SHADOW_STORAGE_KEY = "fx-rate-speaker-oanda-shadow-v1";
 const OANDA_PRIMARY_STALE_MS = 60 * 1000;
 const OANDA_SHADOW_MAX_RECORDS = 5000;
 const SYNTHETIC_STORAGE_KEY = "fx-rate-speaker-synthetic-learning-v1";
-const MARKET_NOTICE_STORAGE_KEY = "fx-rate-speaker-market-notices-v1";
+const MARKET_NOTICE_STORAGE_KEY = "fx-rate-speaker-market-notices-v2";
 const CALENDAR_AMBER_MINUTES = 30;
 const CALENDAR_ORANGE_MINUTES = 10;
 const CALENDAR_RED_MINUTES = 5;
@@ -211,15 +211,18 @@ const WEEKDAYS = [
 ] as const;
 const WEEKDAYS_ONLY = [1, 2, 3, 4, 5];
 const DEFAULT_MARKET_NOTICES: MarketNotice[] = [
-  { id: "monday-open", message: "週明けの窓・流動性注意", start: "07:00", end: "09:00", weekdays: [1] },
-  { id: "tokyo-open", message: "東京勢開始・初動に注意", start: "08:50", end: "09:20", weekdays: WEEKDAYS_ONLY },
-  { id: "tokyo-fix", message: "仲値前後・ドル円の変動注意", start: "09:50", end: "10:10", weekdays: WEEKDAYS_ONLY },
-  { id: "london-pre", message: "ロンドン勢注意・ポジション解消", start: "15:00", end: "16:00", weekdays: WEEKDAYS_ONLY },
-  { id: "london-open", message: "ロンドン勢開始", start: "16:00", end: "16:30", weekdays: WEEKDAYS_ONLY },
-  { id: "new-york-pre", message: "米指標・NY前の値動き注意", start: "20:20", end: "20:40", weekdays: WEEKDAYS_ONLY },
-  { id: "new-york-open", message: "ニューヨーク勢開始・指標注意", start: "21:20", end: "22:10", weekdays: WEEKDAYS_ONLY },
-  { id: "london-fix", message: "ロンドンフィックス前後注意", start: "23:50", end: "00:10", weekdays: WEEKDAYS_ONLY },
-  { id: "friday-close", message: "週末ポジション調整注意", start: "23:30", end: "23:59", weekdays: [5] },
+  { id: "monday-open", message: "週明け・窓と薄い流動性に注意", start: "07:00", end: "08:45", weekdays: [1] },
+  { id: "tokyo-pre", message: "TKY勢参入前・初動準備", start: "08:45", end: "09:00", weekdays: WEEKDAYS_ONLY },
+  { id: "tokyo-open", message: "TKY勢参入・初動と円相場に注意", start: "09:00", end: "09:30", weekdays: WEEKDAYS_ONLY },
+  { id: "tokyo-fix", message: "仲値前後・ドル円の反転に注意", start: "09:50", end: "10:10", weekdays: WEEKDAYS_ONLY },
+  { id: "london-pre", message: "LDN勢参入前・ポジション解消注意", start: "15:00", end: "16:00", weekdays: WEEKDAYS_ONLY },
+  { id: "london-open", message: "LDN勢参入・初動と欧州通貨に注意", start: "16:00", end: "16:30", weekdays: WEEKDAYS_ONLY },
+  { id: "new-york-data", message: "米指標集中時間・USD急変注意", start: "21:20", end: "21:40", weekdays: WEEKDAYS_ONLY },
+  { id: "new-york-pre", message: "NY勢参入前・欧米の引継ぎ注意", start: "20:45", end: "21:00", weekdays: WEEKDAYS_ONLY },
+  { id: "new-york-open", message: "NY勢参入・初動と逆流に注意", start: "21:00", end: "21:30", weekdays: WEEKDAYS_ONLY },
+  { id: "option-cut", message: "NYオプションカット前後注意", start: "22:50", end: "23:10", weekdays: WEEKDAYS_ONLY },
+  { id: "friday-close", message: "週末・ポジション調整と手仕舞い注意", start: "23:30", end: "23:50", weekdays: [5] },
+  { id: "london-fix", message: "LDNフィックス前後・急変注意", start: "23:50", end: "00:10", weekdays: WEEKDAYS_ONLY },
 ];
 const MARKET_PROVERBS = [
   "休むも相場",
@@ -315,7 +318,7 @@ function activeMarketNotice(notices: MarketNotice[], timestamp: number) {
 
 function fallbackMarketProverb(timestamp: number) {
   const { weekday, minute } = marketClock(timestamp);
-  return MARKET_PROVERBS[(weekday + Math.floor(minute / 30)) % MARKET_PROVERBS.length];
+  return MARKET_PROVERBS[(weekday + Math.floor(minute / 5)) % MARKET_PROVERBS.length];
 }
 
 function movementLabel(state?: MovementState) {
