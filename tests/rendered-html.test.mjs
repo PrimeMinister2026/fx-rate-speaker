@@ -32,8 +32,8 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v80<\/title>/i.test(html),
-    "rendered output should contain preview metadata or the production v80 title",
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v81<\/title>/i.test(html),
+    "rendered output should contain preview metadata or the production v81 title",
   );
 });
 
@@ -46,7 +46,7 @@ test("v67 keeps modes 2, 3 and 4 NEWS audio", async () => {
   assert.match(source, /async function playCommentaryAlert/);
   assert.match(source, /\[987\.77, 1975\.54\][\s\S]*\[659\.25, 1318\.5\]/);
   assert.match(source, /commentary\.source === "NEWS"[\s\S]*"PRICE_RAPID"/);
-  assert.match(source, /<strong>v80<\/strong>/);
+  assert.match(source, /<strong>v81<\/strong>/);
   assert.match(source, />4 NEWS<\/button>/);
   assert.match(source, /audioModeRef\.current !== "mode4"/);
   assert.match(source, /NEWS_POLL_INTERVAL_MS = 60 \* 1000/);
@@ -319,6 +319,20 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /if \(significant\.length < 2\) return current \* 0\.20/);
   assert.match(page, /if \(dominant\.length < 2\) return current \* 0\.25/);
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
+});
+
+test("v81 allows pair selection changes while reading without restarting the worker", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(page, /const selectedRef = useRef<string\[]>\(\["USD\/JPY"\]\)/);
+  assert.match(page, /selectedRef\.current = next/);
+  assert.match(page, /fetchAndSpeak\(runIdRef\.current, \[\.\.\.selectedRef\.current\], intervalSeconds\)/);
+  assert.match(page, /\}, \[intervalSeconds\]\);/);
+  assert.doesNotMatch(page, /if \(running\) return;/);
+  assert.doesNotMatch(page, /selection-locked/);
+  assert.doesNotMatch(page, /aria-disabled=\{running\}/);
+  assert.match(page, /onClick=\{\(\) => togglePair\(pair\.code\)\}/);
+  assert.match(styles, /\.rate-row:hover \{/);
 });
 
 test("v80 normalizes rapid alerts to each pair's own recent volatility range", async () => {
