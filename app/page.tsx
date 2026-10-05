@@ -587,6 +587,7 @@ export default function Home() {
   const [intervalSeconds, setIntervalSeconds] = useState(30);
   const [rates, setRates] = useState<RateMap>({});
   const [rateSources, setRateSources] = useState<Record<string, RateSource>>({});
+  const [oandaStatus, setOandaStatus] = useState<"checking" | "connected" | "unconfigured" | "error" | "fallback">("checking");
   const [errors, setErrors] = useState<Record<string, boolean>>({});
   const [running, setRunning] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
@@ -1922,10 +1923,27 @@ export default function Home() {
     setErrors((current) => ({ ...current, [message.symbol]: false }));
   }
 
+  async function refreshOandaHealth() {
+    try {
+      const response = await fetch(`/api/shadow/oanda?health=1&t=${Date.now()}`, { cache: "no-store" });
+      const data = await response.json() as { configured?: boolean; reachable?: boolean };
+      if (!data.configured) setOandaStatus("unconfigured");
+      else if (!data.reachable) setOandaStatus("error");
+      else setOandaStatus((current) => current === "connected" ? current : "checking");
+    } catch {
+      setOandaStatus("error");
+    }
+  }
+
   function startOandaPrimary(runId: number) {
     oandaEventSourceRef.current?.close();
+    setOandaStatus("checking");
+    void refreshOandaHealth();
     const source = new EventSource("/api/shadow/oanda");
     oandaEventSourceRef.current = source;
+    source.onopen = () => {
+      if (runId === runIdRef.current && runningRef.current) setOandaStatus("connected");
+    };
     source.onmessage = (event) => {
       if (runId !== runIdRef.current || !runningRef.current) return;
       try {
@@ -1939,6 +1957,8 @@ export default function Home() {
       if (oandaEventSourceRef.current === source) oandaEventSourceRef.current = null;
       oandaLiveRef.current = {};
       applyAdoptedRates(yahooRatesRef.current);
+      setOandaStatus("fallback");
+      void refreshOandaHealth();
       console.debug("[FX Rate Speaker OANDA primary] disconnected; switched to Yahoo fallback");
     };
   }
@@ -2311,7 +2331,7 @@ export default function Home() {
           <header className="brand-block">
             <p className="eyebrow">FX RATE SPEAKER</p>
             <h1>FXレート読み上げ</h1>
-            <div className="brand-meta"><strong>v81</strong><span className={running ? "live" : ""}>{status}</span></div>
+            <div className="brand-meta"><strong>v82</strong><span className={running ? "live" : ""}>{status}</span></div>
           </header>
           {detail && <div className="error-banner" role="alert">{detail}</div>}
           <time className={`control-clock ${isClockAlertWindow(currentTime) ? "alert-window" : ""}`} dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>
@@ -2361,7 +2381,16 @@ export default function Home() {
               />
             ))}
           </div>
-          <p className="source-note">OANDA優先・Yahoo予備<br />傾向・急変は採用レートの直近{VOLATILITY_WINDOW}変化で自動判定</p>
+          <p className="source-note">
+            <span className={`oanda-status ${oandaStatus}`}>
+              {oandaStatus === "connected" ? "OANDA 接続中"
+                : oandaStatus === "unconfigured" ? "OANDA 未設定 / Yahoo予備"
+                  : oandaStatus === "error" ? "OANDA 接続失敗 / Yahoo予備"
+                    : oandaStatus === "fallback" ? "OANDA 切断 / Yahoo予備"
+                      : "OANDA 確認中"}
+            </span><br />
+            OANDA優先・Yahoo予備<br />傾向・急変は採用レートの直近{VOLATILITY_WINDOW}変化で自動判定
+          </p>
         </aside>
 
         <section className="rate-column panel">
