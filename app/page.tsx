@@ -87,6 +87,7 @@ const RAPID_DISPLAY_HOLD_MS = 30 * 1000;
 const RAPID_AUDIO_MIN_REMAINING_MS = 15 * 1000;
 const COMMENTARY_MERGE_MS = 60 * 1000;
 const OANDA_SHADOW_STORAGE_KEY = "fx-rate-speaker-oanda-shadow-v1";
+const OANDA_PRIMARY_STALE_MS = 15 * 1000;
 const OANDA_SHADOW_MAX_RECORDS = 5000;
 const SYNTHETIC_STORAGE_KEY = "fx-rate-speaker-synthetic-learning-v1";
 const CALENDAR_AMBER_MINUTES = 30;
@@ -104,6 +105,7 @@ const STRENGTH_SIGNIFICANT_DIFFERENCE = 0.75;
 
 type Rate = { price: number; timestamp: number };
 type RateMap = Record<string, Rate>;
+type RateSource = "OANDA" | "OANDA_SYNTHETIC" | "YAHOO";
 type RateResponse = { rates?: RateMap; syntheticSources?: RateMap; syntheticActuals?: RateMap; fetchedAt?: number; error?: string };
 type Direction = "up" | "down" | "unchanged";
 type PlaybackCue = Direction | MovementNotification;
@@ -177,6 +179,7 @@ type MovementSnapshot = {
   notification: MovementNotification | null;
   state: MovementState;
   recentMove: number | null;
+  rapidMovePips: number | null;
 };
 type RateDisplayState = {
   direction: Direction;
@@ -582,6 +585,7 @@ export default function Home() {
   const [selected, setSelected] = useState<string[]>(["USD/JPY"]);
   const [intervalSeconds, setIntervalSeconds] = useState(30);
   const [rates, setRates] = useState<RateMap>({});
+  const [rateSources, setRateSources] = useState<Record<string, RateSource>>({});
   const [errors, setErrors] = useState<Record<string, boolean>>({});
   const [running, setRunning] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
@@ -643,6 +647,9 @@ export default function Home() {
   const graphFetchRef = useRef<AbortController | null>(null);
   const oandaShadowRef = useRef<Record<string, OandaShadowRecord[]>>({});
   const oandaEventSourceRef = useRef<EventSource | null>(null);
+  const oandaLiveRef = useRef<RateMap>({});
+  const yahooRatesRef = useRef<RateMap>({});
+  const rateSourcesRef = useRef<Record<string, RateSource>>({});
   const syntheticLearningRef = useRef<Record<string, SyntheticLearningState>>({});
   const rawSyntheticHistoryRef = useRef<Record<string, SyntheticPoint[]>>({});
   const syntheticOutputHistoryRef = useRef<Record<string, Rate[]>>({});
