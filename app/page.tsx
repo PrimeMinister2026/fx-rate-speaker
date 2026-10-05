@@ -1650,10 +1650,72 @@ export default function Home() {
     return output;
   }
 
+  function freshOandaRate(code: string, now = Date.now()) {
+    const rate = oandaLiveRef.current[code];
+    if (!rate) return null;
+    const age = now - rate.timestamp * 1000;
+    return age >= -20_000 && age <= OANDA_PRIMARY_STALE_MS ? rate : null;
+  }
+
+  function syntheticOandaRate(code: string, now = Date.now()): Rate | null {
+    const direct = (symbol: string) => freshOandaRate(symbol, now);
+    const cross = (left: Rate | null, right: Rate | null, operation: "multiply" | "divide") => {
+      if (!left || !right || (operation === "divide" && right.price === 0)) return null;
+      const price = operation === "multiply" ? left.price * right.price : left.price / right.price;
+      return Number.isFinite(price) && price > 0
+        ? { price, timestamp: Math.min(left.timestamp, right.timestamp) }
+        : null;
+    };
+    if (code === "EUR/USD") return cross(direct("EUR/JPY"), direct("USD/JPY"), "divide");
+    if (code === "GBP/USD") return cross(direct("GBP/JPY"), direct("USD/JPY"), "divide");
+    if (code === "AUD/USD") return cross(direct("AUD/JPY"), direct("USD/JPY"), "divide");
+    if (code === "EUR/JPY") return cross(direct("EUR/USD"), direct("USD/JPY"), "multiply");
+    if (code === "GBP/JPY") return cross(direct("GBP/USD"), direct("USD/JPY"), "multiply");
+    if (code === "AUD/JPY") return cross(direct("AUD/USD"), direct("USD/JPY"), "multiply");
+    if (code === "EUR/GBP") return cross(direct("EUR/USD"), direct("GBP/USD"), "divide");
+    if (code === "EUR/AUD") return cross(direct("EUR/USD"), direct("AUD/USD"), "divide");
+    if (code === "GBP/AUD") return cross(direct("GBP/USD"), direct("AUD/USD"), "divide");
+    if (code === "USD/JPY") {
+      return cross(direct("EUR/JPY"), direct("EUR/USD"), "divide")
+        ?? cross(direct("GBP/JPY"), direct("GBP/USD"), "divide");
+    }
+    return null;
+  }
+
+  function applyAdoptedRates(yahooRates: RateMap) {
+    const now = Date.now();
+    const adopted: RateMap = {};
+    const sources: Record<string, RateSource> = {};
+    PAIRS.forEach((pair) => {
+      const direct = freshOandaRate(pair.code, now);
+      if (direct) {
+        adopted[pair.code] = direct;
+        sources[pair.code] = "OANDA";
+        return;
+      }
+      const synthetic = syntheticOandaRate(pair.code, now);
+      if (synthetic) {
+        adopted[pair.code] = synthetic;
+        sources[pair.code] = "OANDA_SYNTHETIC";
+        return;
+      }
+      const yahoo = yahooRates[pair.code];
+      if (yahoo) {
+        adopted[pair.code] = yahoo;
+        sources[pair.code] = "YAHOO";
+      }
+    });
+    ratesRef.current = adopted;
+    rateSourcesRef.current = sources;
+    setRates(adopted);
+    setRateSources(sources);
+    return adopted;
+  }
+
   function updateRateSnapshot(freshRates: RateMap, syntheticSources?: RateMap, syntheticActuals?: RateMap) {
-    ratesRef.current = { ...ratesRef.current, ...freshRates };
-    setRates(ratesRef.current);
+    yahooRatesRef.current = { ...yahooRatesRef.current, ...freshRates };
     processSyntheticSnapshot(freshRates, syntheticSources, syntheticActuals);
+    return applyAdoptedRates(yahooRatesRef.current);
   }
 
   function auditSlowDirectRates(freshRates: RateMap, syntheticActuals: RateMap | undefined, fetchedAt?: number) {
@@ -1692,14 +1754,7 @@ export default function Home() {
     lastGraphGridRef.current = gridTimestamp;
     const nextSparklineHistories = { ...sparklineHistoriesRef.current };
     PAIRS.forEach((pair) => {
-      const direct = ratesRef.current[pair.code];
-      const synthetic = latestSyntheticRef.current[pair.code];
-      // Synthetic is preferred only while it is at least as current as the formal direct quote
-      // (allowing the existing 20-second source-alignment tolerance). This prevents an old
-      // EUR/USD or GBP/USD synthetic value from being copied into every 10-second graph slot.
-      const latest = synthetic && (!direct || synthetic.timestamp >= direct.timestamp - 20)
-        ? synthetic
-        : direct;
+      const latest = ratesRef.current[pair.code];
       if (!latest || !Number.isFinite(latest.price) || latest.price <= 0) return;
       nextSparklineHistories[pair.code] = appendSparklinePoint(nextSparklineHistories[pair.code] ?? [], {
         price: latest.price,
@@ -1717,7 +1772,7 @@ export default function Home() {
     const displayUpdates: Record<string, RateDisplayState> = {};
     const now = Date.now();
     PAIRS.forEach((pair) => {
-      const analysisRate = latestSyntheticRef.current[pair.code] ?? freshRates[pair.code];
+      const analysisRate = freshRates[pair.code];
       if (!analysisRate) return;
       const previous = previousAnalysisRatesRef.current[pair.code]?.price;
       const direction: Direction = previous !== undefined && analysisRate.price > previous
