@@ -322,11 +322,11 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v92 keeps the app version in one source file", async () => {
+test("v93 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 92/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 93/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -459,4 +459,14 @@ test("v92 restores Yahoo rates to the normal display color when OANDA is unavail
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(page, /rateSource === "YAHOO" \? "Yahooレート"/);
   assert.doesNotMatch(page, /useYahooFallback \? "fallback"/);
+});
+
+
+test("v93 exposes reverse synthetic diagnostics for direct USD quotes", async () => {
+  const route = await readFile(new URL("../app/api/shadow/yahoo/route.ts", import.meta.url), "utf8");
+  assert.match(route, /function reverseFormula/);
+  assert.match(route, /"EUR\/USD".*"EUR\/JPY".*"USD\/JPY"/s);
+  assert.match(route, /reverseBaseComparisons/);
+  assert.match(route, /reverseBaseSyncedComparisons/);
+  assert.match(route, /reverseSyntheticPrice/);
 });
