@@ -28,7 +28,7 @@ type PairFeature = {
   magnitudeRank: number;
 };
 
-const SCORE_SPAN = 36;
+
 const EPSILON = 1e-12;
 
 function clamp(value: number, min: number, max: number) {
@@ -42,15 +42,22 @@ function mean(values: number[]) {
 
 function windowWeights(windowSize: number) {
   if (windowSize >= 60) {
-    return { rank: 0.35, agreement: 0.30, continuation: 0.20, magnitude: 0.15, acceleration: 0 };
+    return { rank: 0.40, agreement: 0.30, continuation: 0.25, magnitude: 0.05, acceleration: 0 };
   }
   if (windowSize >= 30) {
-    return { rank: 0.35, agreement: 0.30, continuation: 0.20, magnitude: 0.15, acceleration: 0 };
+    return { rank: 0.35, agreement: 0.30, continuation: 0.25, magnitude: 0.10, acceleration: 0 };
   }
   if (windowSize >= 15) {
-    return { rank: 0.30, agreement: 0.30, continuation: 0.20, magnitude: 0.10, acceleration: 0.10 };
+    return { rank: 0.30, agreement: 0.30, continuation: 0.25, magnitude: 0.10, acceleration: 0.05 };
   }
-  return { rank: 0, agreement: 0.25, continuation: 0.15, magnitude: 0.35, acceleration: 0.25 };
+  return { rank: 0.25, agreement: 0.30, continuation: 0.25, magnitude: 0.15, acceleration: 0.05 };
+}
+
+function scoreSpan(windowSize: number) {
+  if (windowSize >= 60) return 48;
+  if (windowSize >= 30) return 44;
+  if (windowSize >= 15) return 40;
+  return 32;
 }
 
 export function pairPeriodSignal(history: StrengthPoint[], windowSize: number) {
@@ -169,7 +176,7 @@ export function calculateCurrencyStrength(histories: Record<string, StrengthPoin
       + (components.acceleration / divisor) * weights.acceleration;
 
     raw[currency] = composite;
-    return [currency, clamp(50 + composite * SCORE_SPAN, 0, 100)];
+    return [currency, clamp(50 + composite * scoreSpan(windowSize), 0, 100)];
   })) as CurrencyStrength;
 
   const pairScores = Object.fromEntries(STRENGTH_PAIR_CODES.map((pairCode) => {
