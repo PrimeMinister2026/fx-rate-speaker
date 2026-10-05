@@ -32,8 +32,8 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v85<\/title>/i.test(html),
-    "rendered output should contain preview metadata or the production v82 title",
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v87<\/title>/i.test(html),
+    "rendered output should contain preview metadata or the current production title",
   );
 });
 
@@ -322,11 +322,11 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v85 keeps the app version in one source file", async () => {
+test("v87 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 85/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 87/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -335,7 +335,7 @@ test("v85 keeps the app version in one source file", async () => {
   assert.doesNotMatch(layout, /FX Rate Speaker v85/);
 });
 
-test("v85 rotates proverbs every five minutes and highlights scheduled market notices", async () => {
+test("v87 rotates proverbs and supports DST-aware scheduled market notices", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(page, /LDN勢参入前・ポジション解消注意/);
@@ -349,6 +349,11 @@ test("v85 rotates proverbs every five minutes and highlights scheduled market no
   assert.match(page, /addMarketNotice/);
   assert.match(page, /currentMarketNotice\?\.message \|\| fallbackMarketProverb/);
   assert.match(page, /Math\.floor\(minute \/ 5\)/);
+  assert.match(page, /Europe\/London/);
+  assert.match(page, /America\/New_York/);
+  assert.match(page, /LDN夏冬対応/);
+  assert.match(page, /NY夏冬対応/);
+  assert.match(page, /marketNoticeDisplayRange/);
   assert.match(styles, /\.brand-title-row/);
   assert.match(styles, /\.main-action\.compact/);
   assert.match(styles, /\.market-notice/);

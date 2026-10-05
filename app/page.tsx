@@ -91,7 +91,7 @@ const OANDA_SHADOW_STORAGE_KEY = "fx-rate-speaker-oanda-shadow-v1";
 const OANDA_PRIMARY_STALE_MS = 60 * 1000;
 const OANDA_SHADOW_MAX_RECORDS = 5000;
 const SYNTHETIC_STORAGE_KEY = "fx-rate-speaker-synthetic-learning-v1";
-const MARKET_NOTICE_STORAGE_KEY = "fx-rate-speaker-market-notices-v2";
+const MARKET_NOTICE_STORAGE_KEY = "fx-rate-speaker-market-notices-v3";
 const CALENDAR_AMBER_MINUTES = 30;
 const CALENDAR_ORANGE_MINUTES = 10;
 const CALENDAR_RED_MINUTES = 5;
@@ -202,7 +202,22 @@ type MarketNotice = {
   start: string;
   end: string;
   weekdays: number[];
+  timeBasis: MarketNoticeTimeBasis;
 };
+
+type MarketNoticeTimeBasis = "fixed" | "london" | "new_york";
+
+const MARKET_NOTICE_TIME_ZONES: Record<MarketNoticeTimeBasis, string> = {
+  fixed: "Asia/Tokyo",
+  london: "Europe/London",
+  new_york: "America/New_York",
+};
+
+const MARKET_NOTICE_TIME_BASIS_OPTIONS: Array<{ value: MarketNoticeTimeBasis; label: string }> = [
+  { value: "fixed", label: "日本時間固定" },
+  { value: "london", label: "LDN夏冬対応" },
+  { value: "new_york", label: "NY夏冬対応" },
+];
 
 const WEEKDAYS = [
   { value: 1, label: "月" }, { value: 2, label: "火" }, { value: 3, label: "水" },
@@ -211,18 +226,18 @@ const WEEKDAYS = [
 ] as const;
 const WEEKDAYS_ONLY = [1, 2, 3, 4, 5];
 const DEFAULT_MARKET_NOTICES: MarketNotice[] = [
-  { id: "monday-open", message: "週明け・窓と薄い流動性に注意", start: "07:00", end: "08:45", weekdays: [1] },
-  { id: "tokyo-pre", message: "TKY勢参入前・初動準備", start: "08:45", end: "09:00", weekdays: WEEKDAYS_ONLY },
-  { id: "tokyo-open", message: "TKY勢参入・初動と円相場に注意", start: "09:00", end: "09:30", weekdays: WEEKDAYS_ONLY },
-  { id: "tokyo-fix", message: "仲値前後・ドル円の反転に注意", start: "09:50", end: "10:10", weekdays: WEEKDAYS_ONLY },
-  { id: "london-pre", message: "LDN勢参入前・ポジション解消注意", start: "15:00", end: "16:00", weekdays: WEEKDAYS_ONLY },
-  { id: "london-open", message: "LDN勢参入・初動と欧州通貨に注意", start: "16:00", end: "16:30", weekdays: WEEKDAYS_ONLY },
-  { id: "new-york-data", message: "米指標集中時間・USD急変注意", start: "21:20", end: "21:40", weekdays: WEEKDAYS_ONLY },
-  { id: "new-york-pre", message: "NY勢参入前・欧米の引継ぎ注意", start: "20:45", end: "21:00", weekdays: WEEKDAYS_ONLY },
-  { id: "new-york-open", message: "NY勢参入・初動と逆流に注意", start: "21:00", end: "21:30", weekdays: WEEKDAYS_ONLY },
-  { id: "option-cut", message: "NYオプションカット前後注意", start: "22:50", end: "23:10", weekdays: WEEKDAYS_ONLY },
-  { id: "friday-close", message: "週末・ポジション調整と手仕舞い注意", start: "23:30", end: "23:50", weekdays: [5] },
-  { id: "london-fix", message: "LDNフィックス前後・急変注意", start: "23:50", end: "00:10", weekdays: WEEKDAYS_ONLY },
+  { id: "monday-open", message: "週明け・窓と薄い流動性に注意", start: "07:00", end: "08:45", weekdays: [1], timeBasis: "fixed" },
+  { id: "tokyo-pre", message: "TKY勢参入前・初動準備", start: "08:45", end: "09:00", weekdays: WEEKDAYS_ONLY, timeBasis: "fixed" },
+  { id: "tokyo-open", message: "TKY勢参入・初動と円相場に注意", start: "09:00", end: "09:30", weekdays: WEEKDAYS_ONLY, timeBasis: "fixed" },
+  { id: "tokyo-fix", message: "仲値前後・ドル円の反転に注意", start: "09:50", end: "10:10", weekdays: WEEKDAYS_ONLY, timeBasis: "fixed" },
+  { id: "london-pre", message: "LDN勢参入前・ポジション解消注意", start: "07:00", end: "08:00", weekdays: WEEKDAYS_ONLY, timeBasis: "london" },
+  { id: "london-open", message: "LDN勢参入・初動と欧州通貨に注意", start: "08:00", end: "08:30", weekdays: WEEKDAYS_ONLY, timeBasis: "london" },
+  { id: "new-york-data", message: "米指標集中時間・USD急変注意", start: "08:20", end: "08:40", weekdays: WEEKDAYS_ONLY, timeBasis: "new_york" },
+  { id: "new-york-pre", message: "NY勢参入前・欧米の引継ぎ注意", start: "07:45", end: "08:00", weekdays: WEEKDAYS_ONLY, timeBasis: "new_york" },
+  { id: "new-york-open", message: "NY勢参入・初動と逆流に注意", start: "08:00", end: "08:30", weekdays: WEEKDAYS_ONLY, timeBasis: "new_york" },
+  { id: "option-cut", message: "NYオプションカット前後注意", start: "09:50", end: "10:10", weekdays: WEEKDAYS_ONLY, timeBasis: "new_york" },
+  { id: "friday-close", message: "週末・ポジション調整と手仕舞い注意", start: "10:30", end: "10:50", weekdays: [5], timeBasis: "new_york" },
+  { id: "london-fix", message: "LDNフィックス前後・急変注意", start: "15:50", end: "16:10", weekdays: WEEKDAYS_ONLY, timeBasis: "london" },
 ];
 const MARKET_PROVERBS = [
   "休むも相場",
@@ -287,9 +302,9 @@ function formatLiveDateTime(timestamp: number) {
   return `${parts.hour}:${parts.minute}:${parts.second} ${parts.weekday} ${parts.day} ${parts.month} ${parts.year}`;
 }
 
-function marketClock(timestamp: number) {
+function marketClock(timestamp: number, timeZone = "Asia/Tokyo") {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Tokyo",
+    timeZone,
     weekday: "short",
     hour: "2-digit",
     minute: "2-digit",
@@ -305,8 +320,8 @@ function timeToMinute(value: string) {
 }
 
 function activeMarketNotice(notices: MarketNotice[], timestamp: number) {
-  const now = marketClock(timestamp);
   return notices.find((notice) => {
+    const now = marketClock(timestamp, MARKET_NOTICE_TIME_ZONES[notice.timeBasis]);
     if (!notice.weekdays.includes(now.weekday)) return false;
     const start = timeToMinute(notice.start);
     const end = timeToMinute(notice.end);
@@ -314,6 +329,33 @@ function activeMarketNotice(notices: MarketNotice[], timestamp: number) {
       ? now.minute >= start && now.minute < end
       : now.minute >= start || now.minute < end;
   }) ?? null;
+}
+
+function timeZoneOffsetMinutes(timestamp: number, timeZone: string) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(timestamp).map((part) => [part.type, part.value]));
+  const asUtc = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), Number(parts.second));
+  return Math.round((asUtc - timestamp) / 60_000);
+}
+
+function formatClockMinute(value: number) {
+  const minute = ((value % 1440) + 1440) % 1440;
+  return `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+}
+
+function marketNoticeDisplayRange(notice: MarketNotice, timestamp: number) {
+  if (notice.timeBasis === "fixed") return `${notice.start}–${notice.end}`;
+  const sourceZone = MARKET_NOTICE_TIME_ZONES[notice.timeBasis];
+  const offset = timeZoneOffsetMinutes(timestamp, "Asia/Tokyo") - timeZoneOffsetMinutes(timestamp, sourceZone);
+  return `${formatClockMinute(timeToMinute(notice.start) + offset)}–${formatClockMinute(timeToMinute(notice.end) + offset)} JST`;
 }
 
 function fallbackMarketProverb(timestamp: number) {
@@ -739,8 +781,17 @@ export default function Home() {
     try {
       const saved = localStorage.getItem(MARKET_NOTICE_STORAGE_KEY);
       if (saved) {
-        const parsed = JSON.parse(saved) as MarketNotice[];
-        if (Array.isArray(parsed)) setMarketNotices(parsed);
+        const parsed = JSON.parse(saved) as Array<Partial<MarketNotice>>;
+        if (Array.isArray(parsed)) {
+          setMarketNotices(parsed.filter((notice) => notice.id && notice.message && notice.start && notice.end).map((notice) => ({
+            id: notice.id!,
+            message: notice.message!,
+            start: notice.start!,
+            end: notice.end!,
+            weekdays: Array.isArray(notice.weekdays) ? notice.weekdays : [...WEEKDAYS_ONLY],
+            timeBasis: notice.timeBasis && notice.timeBasis in MARKET_NOTICE_TIME_ZONES ? notice.timeBasis : "fixed",
+          })));
+        }
       }
     } catch (error) {
       console.warn("FX Rate Speaker market notice restore failed", error);
@@ -772,7 +823,7 @@ export default function Home() {
     const id = `notice-${Date.now()}`;
     setMarketNotices((current) => [
       ...current,
-      { id, message: "新しい注意事項", start: "12:00", end: "12:30", weekdays: [...WEEKDAYS_ONLY] },
+      { id, message: "新しい注意事項", start: "12:00", end: "12:30", weekdays: [...WEEKDAYS_ONLY], timeBasis: "fixed" },
     ]);
   }
 
@@ -2461,7 +2512,7 @@ export default function Home() {
           <time className={`control-clock ${isClockAlertWindow(currentTime) ? "alert-window" : ""}`} dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>
           <section className={`market-notice ${currentMarketNotice ? "scheduled" : "proverb"}`} aria-live="polite">
             <div className="market-notice-head">
-              <span>{currentMarketNotice ? `${currentMarketNotice.start}–${currentMarketNotice.end}` : "MARKET NOTE"}</span>
+              <span>{currentMarketNotice ? marketNoticeDisplayRange(currentMarketNotice, currentTime) : "MARKET NOTE"}</span>
               <button type="button" onClick={() => setMarketNoticeAdminOpen(true)}>管理</button>
             </div>
             <strong>{marketMessage}</strong>
@@ -2666,13 +2717,17 @@ export default function Home() {
               <div><p>MARKET NOTICE</p><h2 id="notice-admin-title">時間帯メッセージ管理</h2></div>
               <button type="button" onClick={() => setMarketNoticeAdminOpen(false)} aria-label="閉じる">×</button>
             </header>
-            <p className="notice-admin-help">日本時間で判定します。上にある項目を優先し、該当しない時間は相場の格言を表示します。</p>
+            <p className="notice-admin-help">時刻基準を項目ごとに選べます。LDN／NYは現地時刻で登録すると夏時間・冬時間を自動反映します。上の項目を優先します。</p>
             <div className="notice-admin-list">
               {marketNotices.map((notice) => (
                 <article className="notice-admin-row" key={notice.id}>
                   <input className="notice-message-input" value={notice.message} aria-label="表示メッセージ"
                     onChange={(event) => updateMarketNotice(notice.id, { message: event.target.value })} />
                   <div className="notice-time-row">
+                    <select value={notice.timeBasis} aria-label="時刻基準"
+                      onChange={(event) => updateMarketNotice(notice.id, { timeBasis: event.target.value as MarketNoticeTimeBasis })}>
+                      {MARKET_NOTICE_TIME_BASIS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
                     <input type="time" value={notice.start} aria-label="開始時刻"
                       onChange={(event) => updateMarketNotice(notice.id, { start: event.target.value })} />
                     <span>〜</span>
