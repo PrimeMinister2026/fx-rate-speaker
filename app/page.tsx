@@ -358,6 +358,20 @@ function marketNoticeDisplayRange(notice: MarketNotice, timestamp: number) {
   return `${formatClockMinute(timeToMinute(notice.start) + offset)}–${formatClockMinute(timeToMinute(notice.end) + offset)} JST`;
 }
 
+function marketNoticeJstTime(timeBasis: MarketNoticeTimeBasis, sourceTime: string, timestamp: number) {
+  if (timeBasis === "fixed") return sourceTime;
+  const sourceZone = MARKET_NOTICE_TIME_ZONES[timeBasis];
+  const offset = timeZoneOffsetMinutes(timestamp, "Asia/Tokyo") - timeZoneOffsetMinutes(timestamp, sourceZone);
+  return formatClockMinute(timeToMinute(sourceTime) + offset);
+}
+
+function marketNoticeSourceTime(timeBasis: MarketNoticeTimeBasis, jstTime: string, timestamp: number) {
+  if (timeBasis === "fixed") return jstTime;
+  const sourceZone = MARKET_NOTICE_TIME_ZONES[timeBasis];
+  const offset = timeZoneOffsetMinutes(timestamp, "Asia/Tokyo") - timeZoneOffsetMinutes(timestamp, sourceZone);
+  return formatClockMinute(timeToMinute(jstTime) - offset);
+}
+
 function fallbackMarketProverb(timestamp: number) {
   const { weekday, minute } = marketClock(timestamp);
   return MARKET_PROVERBS[(weekday + Math.floor(minute / 5)) % MARKET_PROVERBS.length];
@@ -809,6 +823,16 @@ export default function Home() {
     setMarketNotices((current) => current.map((notice) => notice.id === id ? { ...notice, ...changes } : notice));
   }
 
+  function changeMarketNoticeTimeBasis(notice: MarketNotice, timeBasis: MarketNoticeTimeBasis) {
+    const startJst = marketNoticeJstTime(notice.timeBasis, notice.start, currentTime);
+    const endJst = marketNoticeJstTime(notice.timeBasis, notice.end, currentTime);
+    updateMarketNotice(notice.id, {
+      timeBasis,
+      start: marketNoticeSourceTime(timeBasis, startJst, currentTime),
+      end: marketNoticeSourceTime(timeBasis, endJst, currentTime),
+    });
+  }
+
   function toggleMarketNoticeWeekday(id: string, weekday: number) {
     setMarketNotices((current) => current.map((notice) => {
       if (notice.id !== id) return notice;
@@ -823,7 +847,14 @@ export default function Home() {
     const id = `notice-${Date.now()}`;
     setMarketNotices((current) => [
       ...current,
-      { id, message: "新しい注意事項", start: "12:00", end: "12:30", weekdays: [...WEEKDAYS_ONLY], timeBasis: "fixed" },
+      {
+        id,
+        message: "新しい注意事項",
+        start: marketNoticeSourceTime("new_york", "12:00", currentTime),
+        end: marketNoticeSourceTime("new_york", "12:30", currentTime),
+        weekdays: [...WEEKDAYS_ONLY],
+        timeBasis: "new_york",
+      },
     ]);
   }
 
@@ -2717,7 +2748,7 @@ export default function Home() {
               <div><p>MARKET NOTICE</p><h2 id="notice-admin-title">時間帯メッセージ管理</h2></div>
               <button type="button" onClick={() => setMarketNoticeAdminOpen(false)} aria-label="閉じる">×</button>
             </header>
-            <p className="notice-admin-help">時刻基準を項目ごとに選べます。LDN／NYは現地時刻で登録すると夏時間・冬時間を自動反映します。上の項目を優先します。</p>
+            <p className="notice-admin-help">入力時刻は日本時間表示です。LDN／NYを選ぶと夏時間・冬時間に合わせて自動で1時間移動します。上の項目を優先します。</p>
             <div className="notice-admin-list">
               {marketNotices.map((notice) => (
                 <article className="notice-admin-row" key={notice.id}>
@@ -2725,14 +2756,14 @@ export default function Home() {
                     onChange={(event) => updateMarketNotice(notice.id, { message: event.target.value })} />
                   <div className="notice-time-row">
                     <select value={notice.timeBasis} aria-label="時刻基準"
-                      onChange={(event) => updateMarketNotice(notice.id, { timeBasis: event.target.value as MarketNoticeTimeBasis })}>
+                      onChange={(event) => changeMarketNoticeTimeBasis(notice, event.target.value as MarketNoticeTimeBasis)}>
                       {MARKET_NOTICE_TIME_BASIS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
-                    <input type="time" value={notice.start} aria-label="開始時刻"
-                      onChange={(event) => updateMarketNotice(notice.id, { start: event.target.value })} />
+                    <input type="time" value={marketNoticeJstTime(notice.timeBasis, notice.start, currentTime)} aria-label="開始時刻（日本時間）"
+                      onChange={(event) => updateMarketNotice(notice.id, { start: marketNoticeSourceTime(notice.timeBasis, event.target.value, currentTime) })} />
                     <span>〜</span>
-                    <input type="time" value={notice.end} aria-label="終了時刻"
-                      onChange={(event) => updateMarketNotice(notice.id, { end: event.target.value })} />
+                    <input type="time" value={marketNoticeJstTime(notice.timeBasis, notice.end, currentTime)} aria-label="終了時刻（日本時間）"
+                      onChange={(event) => updateMarketNotice(notice.id, { end: marketNoticeSourceTime(notice.timeBasis, event.target.value, currentTime) })} />
                     <button className="notice-delete" type="button" onClick={() => setMarketNotices((current) => current.filter((item) => item.id !== notice.id))}>削除</button>
                   </div>
                   <div className="notice-weekdays" role="group" aria-label="表示曜日">
