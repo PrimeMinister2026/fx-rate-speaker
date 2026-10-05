@@ -41,6 +41,13 @@ h2 { margin:0; font-size:14px; }
 .stop { background:#344157; color:#fff; }
 .market-notice { display:grid; gap:3px; min-height:43px; padding:5px 8px 6px; border:1px solid #ffe181; border-radius:8px; background:linear-gradient(135deg,#ffdc6a,#c99219); color:#171006; box-shadow:0 4px 18px #d59a1c2d; overflow:hidden; }
 .market-notice.scheduled { border-color:#ff6678; background:linear-gradient(135deg,#c9122e,#7f071b); color:#fff; box-shadow:0 4px 18px #d11b384d; }
+.market-calendar-alert { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:6px; margin:-1px -2px 2px; padding:3px 5px; border:1px solid #c78b19; border-radius:5px; background:#3a2505; color:#ffe8a3; font-size:9px; line-height:1.15; }
+.market-calendar-alert > span { font-weight:950; white-space:nowrap; }
+.market-calendar-alert > strong { min-width:0; overflow:hidden; color:#fff4cf; font-size:9px; text-overflow:ellipsis; white-space:nowrap; }
+.market-calendar-alert.proximity-orange { border-color:#ff8a2a; background:#4c1d05; color:#ffd1a4; }
+.market-calendar-alert.proximity-red { border-color:#ff455f; background:#7d0719; color:#fff; box-shadow:0 0 10px #ff173866; animation:indicator-alert-pulse .9s ease-in-out infinite; }
+.market-calendar-alert.proximity-red > strong { color:#fff; }
+@keyframes indicator-alert-pulse { 0%,100% { filter:brightness(1); } 50% { filter:brightness(1.28); } }
 .market-notice-head { display:flex; align-items:center; justify-content:space-between; gap:7px; min-width:0; }
 .market-notice-head span { min-width:0; font-size:8px; font-weight:900; letter-spacing:.05em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .market-notice-head button { border:1px solid #3a2a08aa; border-radius:5px; padding:1px 6px; background:#1710061a; color:#211706; font-size:8px; font-weight:900; }
