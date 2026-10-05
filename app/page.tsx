@@ -2306,7 +2306,7 @@ export default function Home() {
           <header className="brand-block">
             <p className="eyebrow">FX RATE SPEAKER</p>
             <h1>FXレート読み上げ</h1>
-            <div className="brand-meta"><strong>v78</strong><span className={running ? "live" : ""}>{status}</span></div>
+            <div className="brand-meta"><strong>v79</strong><span className={running ? "live" : ""}>{status}</span></div>
           </header>
           {detail && <div className="error-banner" role="alert">{detail}</div>}
           <time className={`control-clock ${isClockAlertWindow(currentTime) ? "alert-window" : ""}`} dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>
@@ -2356,18 +2356,17 @@ export default function Home() {
               />
             ))}
           </div>
-          <p className="source-note">Yahoo Finance 1分足参考レート<br />傾向・急変は直近{VOLATILITY_WINDOW}変化で自動判定</p>
+          <p className="source-note">OANDA優先・Yahoo予備<br />傾向・急変は採用レートの直近{VOLATILITY_WINDOW}変化で自動判定</p>
         </aside>
 
         <section className="rate-column panel">
           <div className="rate-list">
             {PAIRS.map((pair) => {
               const rate = rates[pair.code];
-              const syntheticRate = latestSyntheticRef.current[pair.code];
-              const useSyntheticDisplay = SYNTHETIC_SYMBOLS.includes(pair.code as SyntheticSymbol)
-                && Boolean(syntheticRate)
-                && (!rate || syntheticRate!.timestamp >= rate.timestamp - 20);
-              const visibleRate = useSyntheticDisplay ? syntheticRate : rate;
+              const rateSource = rateSources[pair.code];
+              const useSyntheticDisplay = rateSource === "OANDA_SYNTHETIC";
+              const useYahooFallback = rateSource === "YAHOO";
+              const visibleRate = rate;
               const failed = errors[pair.code];
               const displayFailed = Boolean(failed && !visibleRate);
               const displayState = rateDisplayStates[pair.code];
@@ -2404,8 +2403,8 @@ export default function Home() {
                       {movement !== "NORMAL" && (
                         <span className={`movement ${movement}`} title={movementLabel(movement)} aria-label={movementLabel(movement)}>{movementSymbol(movement)}</span>
                       )}
-                      <div className={`rate-value ${useSyntheticDisplay ? "synthetic" : ""}`}
-                        title={useSyntheticDisplay ? "Synthetic補正レート" : "正式レート"}>
+                      <div className={`rate-value ${useSyntheticDisplay ? "synthetic" : useYahooFallback ? "fallback" : ""}`}
+                        title={useSyntheticDisplay ? "OANDA Syntheticレート" : useYahooFallback ? "Yahoo予備レート" : "OANDA直接レート"}>
                         {displayFailed ? "取得失敗" : visibleRate ? displayPrice(visibleRate.price, pair.yen) : "---"}
                       </div>
                     </div>
