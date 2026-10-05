@@ -33,6 +33,7 @@ import {
   type SyntheticStatus,
   type SyntheticSymbol,
 } from "@/lib/synthetic";
+import { FX_RATE_SPEAKER_VERSION_LABEL } from "@/lib/version";
 import {
   CURRENCY_STRENGTH_WINDOWS,
   STRENGTH_CURRENCIES,
@@ -2331,7 +2332,7 @@ export default function Home() {
           <header className="brand-block">
             <p className="eyebrow">FX RATE SPEAKER</p>
             <h1>FXレート読み上げ</h1>
-            <div className="brand-meta"><strong>v82</strong><span className={running ? "live" : ""}>{status}</span></div>
+            <div className="brand-meta"><strong>{FX_RATE_SPEAKER_VERSION_LABEL}</strong><span className={running ? "live" : ""}>{status}</span></div>
           </header>
           {detail && <div className="error-banner" role="alert">{detail}</div>}
           <time className={`control-clock ${isClockAlertWindow(currentTime) ? "alert-window" : ""}`} dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>

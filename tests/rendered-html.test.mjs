@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v82<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v83<\/title>/i.test(html),
     "rendered output should contain preview metadata or the production v82 title",
   );
 });
@@ -46,7 +46,7 @@ test("v67 keeps modes 2, 3 and 4 NEWS audio", async () => {
   assert.match(source, /async function playCommentaryAlert/);
   assert.match(source, /\[987\.77, 1975\.54\][\s\S]*\[659\.25, 1318\.5\]/);
   assert.match(source, /commentary\.source === "NEWS"[\s\S]*"PRICE_RAPID"/);
-  assert.match(source, /<strong>v82<\/strong>/);
+  assert.match(source, /<strong>\{FX_RATE_SPEAKER_VERSION_LABEL\}<\/strong>/);
   assert.match(source, />4 NEWS<\/button>/);
   assert.match(source, /audioModeRef\.current !== "mode4"/);
   assert.match(source, /NEWS_POLL_INTERVAL_MS = 60 \* 1000/);
@@ -319,6 +319,19 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /if \(significant\.length < 2\) return current \* 0\.20/);
   assert.match(page, /if \(dominant\.length < 2\) return current \* 0\.25/);
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
+});
+
+test("v83 keeps the app version in one source file", async () => {
+  const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 83/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
+  assert.match(version, /FX_RATE_SPEAKER_TITLE/);
+  assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
+  assert.match(layout, /FX_RATE_SPEAKER_TITLE/);
+  assert.doesNotMatch(page, /<strong>v83<\/strong>/);
+  assert.doesNotMatch(layout, /FX Rate Speaker v83/);
 });
 
 test("v82 exposes OANDA health diagnostics and live connection status", async () => {
