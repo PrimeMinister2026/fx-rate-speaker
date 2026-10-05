@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   STRENGTH_PAIR_CODES,
   calculateCurrencyStrength,
+  pairPeriodSignal,
 } from "../lib/currency-strength.ts";
 
 const currencies = ["USD", "JPY", "EUR", "GBP", "AUD"];
