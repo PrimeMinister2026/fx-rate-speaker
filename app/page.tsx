@@ -1846,10 +1846,10 @@ export default function Home() {
       const response = await fetch(`/api/rates?graph=${Date.now()}`, { cache: "no-store", signal: controller.signal });
       const data = await response.json() as RateResponse;
       if (!response.ok || !data.rates || runId !== runIdRef.current) return;
-      updateRateSnapshot(data.rates, data.syntheticSources, data.syntheticActuals);
+      const adoptedRates = updateRateSnapshot(data.rates, data.syntheticSources, data.syntheticActuals);
       const histories = recordGraphGridPoint();
       auditSlowDirectRates(data.rates, data.syntheticActuals, data.fetchedAt);
-      analyzeAllPairs(data.rates, histories);
+      analyzeAllPairs(adoptedRates, histories);
     } catch (error) {
       if (!controller.signal.aborted) console.debug("[FX Rate Speaker graph poll]", error);
     } finally {
@@ -1892,12 +1892,18 @@ export default function Home() {
     });
   }
 
-  function recordOandaShadow(message: OandaShadowMessage) {
-    if (!Number.isFinite(message.mid) || !["EUR/USD", "GBP/USD", "EUR/GBP"].includes(message.symbol)) return;
+  function recordOandaPrimary(message: OandaShadowMessage) {
+    if (!Number.isFinite(message.mid) || !PAIRS.some((pair) => pair.code === message.symbol)) return;
+    const providerMs = Date.parse(message.providerTimestamp);
+    const timestamp = Number.isFinite(providerMs)
+      ? Math.floor(providerMs / 1000)
+      : Math.floor(message.receivedTimestamp / 1000);
+    oandaLiveRef.current[message.symbol] = { price: message.mid, timestamp };
+
     const records = oandaShadowRef.current[message.symbol] ?? [];
     const previous = records.at(-1);
-    const yahoo = ratesRef.current[message.symbol];
-    const pipSize = 0.0001;
+    const yahoo = yahooRatesRef.current[message.symbol];
+    const pipSize = message.symbol.endsWith("/JPY") ? 0.01 : 0.0001;
     const record: OandaShadowRecord = {
       ...message,
       delta: previous ? message.mid - previous.mid : null,
@@ -1911,24 +1917,27 @@ export default function Home() {
       persistOandaShadow();
       logOandaShadowMetrics(message.symbol, nextRecords);
     }
+
+    applyAdoptedRates(yahooRatesRef.current);
+    setErrors((current) => ({ ...current, [message.symbol]: false }));
   }
 
-  function startOandaShadow(runId: number) {
+  function startOandaPrimary(runId: number) {
     oandaEventSourceRef.current?.close();
     const source = new EventSource("/api/shadow/oanda");
     oandaEventSourceRef.current = source;
     source.onmessage = (event) => {
       if (runId !== runIdRef.current || !runningRef.current) return;
       try {
-        recordOandaShadow(JSON.parse(event.data) as OandaShadowMessage);
+        recordOandaPrimary(JSON.parse(event.data) as OandaShadowMessage);
       } catch {
-        // Ignore a malformed shadow event. Formal Yahoo processing is isolated.
+        // Ignore a malformed OANDA event and continue with the current adopted/fallback rates.
       }
     };
     source.onerror = () => {
       source.close();
       if (oandaEventSourceRef.current === source) oandaEventSourceRef.current = null;
-      console.debug("[FX Rate Speaker OANDA shadow] disabled or disconnected");
+      console.debug("[FX Rate Speaker OANDA primary] disconnected; Yahoo fallback remains available");
     };
   }
 
@@ -1952,16 +1961,16 @@ export default function Home() {
       const freshRates = data.rates;
 
       const previousBeforeAnalysis = { ...previousAnalysisRatesRef.current };
-      updateRateSnapshot(freshRates, data.syntheticSources, data.syntheticActuals);
+      const adoptedRates = updateRateSnapshot(freshRates, data.syntheticSources, data.syntheticActuals);
       const nextSparklineHistories = sparklineHistoriesRef.current;
-      analyzeAllPairs(freshRates, nextSparklineHistories);
-      setErrors(Object.fromEntries(pairs.map((pair) => [pair, !freshRates[pair]])));
+      analyzeAllPairs(adoptedRates, nextSparklineHistories);
+      setErrors(Object.fromEntries(pairs.map((pair) => [pair, !adoptedRates[pair]])));
 
-      const readable = pairs.filter((pair) => freshRates[pair]);
+      const readable = pairs.filter((pair) => adoptedRates[pair]);
       const sequence = readable.map((code) => {
         const pair = PAIRS.find((item) => item.code === code)!;
-        const current = freshRates[code].price;
-        const analysisRate = latestSyntheticRef.current[code] ?? freshRates[code];
+        const current = adoptedRates[code].price;
+        const analysisRate = adoptedRates[code];
         const analysisCurrent = analysisRate.price;
         const previous = previousBeforeAnalysis[code]?.price;
         const direction: Direction = previous !== undefined && analysisCurrent > previous
@@ -2107,7 +2116,7 @@ export default function Home() {
     setRemainingSeconds(AUTO_STOP_SECONDS);
     workerRef.current?.postMessage({ type: "clockStart", runId });
     workerRef.current?.postMessage({ type: "graphStart", runId });
-    startOandaShadow(runId);
+    startOandaPrimary(runId);
     countdownRef.current = setInterval(() => {
       const remaining = Math.max(0, Math.ceil((endAtRef.current - Date.now()) / 1000));
       setRemainingSeconds(remaining);
