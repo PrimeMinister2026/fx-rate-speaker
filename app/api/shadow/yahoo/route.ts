@@ -139,10 +139,13 @@ export async function GET() {
     };
   });
 
-  const availableComparisons = comparisons.filter(
-    (item): item is Extract<typeof item, { available: true }> => item.available,
-  );
-  const ranked = [...availableComparisons].sort((a, b) => b.absDeltaPips - a.absDeltaPips);
+  const ranked = comparisons
+    .filter((item) => item.available && "absDeltaPips" in item)
+    .sort((a, b) => {
+      const left = "absDeltaPips" in a ? Number(a.absDeltaPips) : -1;
+      const right = "absDeltaPips" in b ? Number(b.absDeltaPips) : -1;
+      return right - left;
+    });
 
   return Response.json({
     purpose: "Yahoo direct-vs-4-base synthetic consistency shadow audit",
