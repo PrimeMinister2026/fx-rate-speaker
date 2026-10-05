@@ -32,8 +32,8 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v76<\/title>/i.test(html),
-    "rendered output should contain preview metadata or the production v76 title",
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v77<\/title>/i.test(html),
+    "rendered output should contain preview metadata or the production v77 title",
   );
 });
 
@@ -46,7 +46,7 @@ test("v67 keeps modes 2, 3 and 4 NEWS audio", async () => {
   assert.match(source, /async function playCommentaryAlert/);
   assert.match(source, /\[987\.77, 1975\.54\][\s\S]*\[659\.25, 1318\.5\]/);
   assert.match(source, /commentary\.source === "NEWS"[\s\S]*"PRICE_RAPID"/);
-  assert.match(source, /<strong>v76<\/strong>/);
+  assert.match(source, /<strong>v77<\/strong>/);
   assert.match(source, />4 NEWS<\/button>/);
   assert.match(source, /audioModeRef\.current !== "mode4"/);
   assert.match(source, /NEWS_POLL_INTERVAL_MS = 60 \* 1000/);
@@ -101,7 +101,7 @@ test("v60 separates 30/60 second speech from 10 second silent graph polling and 
   assert.match(source, /\{\[30, 60\]\.map/);
   assert.doesNotMatch(source, /\{\[10, 30, 60\]\.map/);
   assert.match(source, /formatLiveDateTime\(currentTime\)/);
-  assert.match(source, /className=\{`control-clock \\${isClockAlertWindow\(currentTime\) \? "alert-window" : ""}`\}/);
+  assert.match(source, /control-clock[\s\S]*isClockAlertWindow\(currentTime\)[\s\S]*alert-window/);
   assert.match(styles, /\.control-clock/);
   assert.match(styles, /\.intervals \{ grid-template-columns:repeat\(2,1fr\)/);
 });
@@ -296,15 +296,29 @@ test("v75 reduces Forex Factory throttling risk and keeps a fallback calendar so
   assert.match(calendar, /stale-while-revalidate=600/);
 });
 
-test("v76 uses window-specific currency-strength v2 weighting", async () => {
+test("v77 uses window-specific currency-strength v2.1 weighting", async () => {
   const strength = await readFile(new URL("../lib/currency-strength.ts", import.meta.url), "utf8");
-  assert.match(strength, /SCORE_SPAN = 36/);
+  assert.match(strength, /function scoreSpan/);
   assert.match(strength, /function windowWeights/);
-  assert.match(strength, /rank: 0\.35, agreement: 0\.30, continuation: 0\.20, magnitude: 0\.15, acceleration: 0/);
-  assert.match(strength, /rank: 0, agreement: 0\.25, continuation: 0\.15, magnitude: 0\.35, acceleration: 0\.25/);
+  assert.match(strength, /rank: 0\.40, agreement: 0\.30, continuation: 0\.25, magnitude: 0\.05, acceleration: 0/);
+  assert.match(strength, /rank: 0\.25, agreement: 0\.30, continuation: 0\.25, magnitude: 0\.15, acceleration: 0\.05/);
   assert.match(strength, /efficiency \* 0\.55 \+ Math\.abs\(directionBalance\) \* 0\.45/);
   assert.match(strength, /attachMagnitudeRanks/);
   assert.match(strength, /components\.acceleration/);
+  assert.match(strength, /if \(windowSize >= 60\) return 48/);
+  assert.match(strength, /if \(windowSize >= 30\) return 44/);
+  assert.match(strength, /if \(windowSize >= 15\) return 40/);
+  assert.match(strength, /return 32/);
+});
+
+test("v77 requires repeated confirmation before a strong 7-point display", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /function trendAwareStrengthDifference\(history: number\[\], windowSize: number\)/);
+  assert.match(page, /if \(windowSize <= 7\)/);
+  assert.match(page, /const recent = history\.slice\(-3\)/);
+  assert.match(page, /if \(significant\.length < 2\) return current \* 0\.20/);
+  assert.match(page, /if \(dominant\.length < 2\) return current \* 0\.25/);
+  assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
 test("v74 renders movement or S/S+ immediately before the rate on the same baseline", async () => {
@@ -315,7 +329,8 @@ test("v74 renders movement or S/S+ immediately before the rate on the same basel
   assert.match(styles, /\.rate-value-line \{[^}]*align-items:baseline[^}]*justify-content:flex-end/);
   assert.match(styles, /\.rate-value \{[^}]*clamp\(24px,1\.95vw,28px\)/);
   assert.match(styles, /\.movement \{[^}]*font-size:14px/);
-  assert.match(styles, /\.synthetic-badge \{[^}]*font-size:7px[^}]*border:0/);
+  assert.match(styles, /\.synthetic-badge \{[^}]*font-size:7px/);
+  assert.match(styles, /\.synthetic-badge \{[^}]*border:0/);
 });
 
 test("v60 wires direct cross-yen sources into self-correcting synthetic histories without replacing formal rates", async () => {

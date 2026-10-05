@@ -110,3 +110,15 @@ test("strength v2 suppresses directionless noise compared with a clean trend", (
   const noisyResult = calculateCurrencyStrength(noisy, 30);
   assert.ok(Math.abs(cleanResult.pairScores["USD/JPY"]) >= Math.abs(noisyResult.pairScores["USD/JPY"]));
 });
+
+
+test("strength v2.1 expands persistent long-window separation more than the 7-point window", () => {
+  const histories = historiesFromCurrencySlopes({ USD: .000015, JPY: -.000015, EUR: .000002, GBP: 0, AUD: -.000002 }, 60);
+  const s60 = calculateCurrencyStrength(histories, 60);
+  const s30 = calculateCurrencyStrength(histories, 30);
+  const s15 = calculateCurrencyStrength(histories, 15);
+  const s7 = calculateCurrencyStrength(histories, 7);
+  assert.ok(Math.abs(s60.pairScores["USD/JPY"]) > Math.abs(s7.pairScores["USD/JPY"]));
+  assert.ok(Math.abs(s30.pairScores["USD/JPY"]) > Math.abs(s7.pairScores["USD/JPY"]));
+  assert.ok(Math.abs(s15.pairScores["USD/JPY"]) > Math.abs(s7.pairScores["USD/JPY"]));
+});
