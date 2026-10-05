@@ -322,11 +322,11 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v91 keeps the app version in one source file", async () => {
+test("v92 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 91/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 92/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -452,4 +452,12 @@ test("v91 keeps calendar display polling independent from NEWS mode and warns in
   assert.match(calendar, /Promise\.allSettled\(SOURCES\.map\(\(url\) => fetchSource\(url\)\)\)/);
   assert.match(calendar, /SOURCE_TIMEOUT_MS = 7_000/);
   assert.match(styles, /\.market-calendar-alert\.proximity-red/);
+});
+
+
+test("v92 restores Yahoo rates to the normal display color when OANDA is unavailable", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /const useYahooFallback = false/);
+  assert.match(page, /rateSource === "YAHOO" \? "Yahooレート"/);
+  assert.doesNotMatch(page, /useYahooFallback \? "fallback"/);
 });
