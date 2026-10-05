@@ -304,7 +304,11 @@ test("v77 uses window-specific currency-strength v2.1 weighting", async () => {
   assert.match(strength, /rank: 0\.25, agreement: 0\.30, continuation: 0\.25, magnitude: 0\.15, acceleration: 0\.05/);
   assert.match(strength, /efficiency \* 0\.55 \+ Math\.abs\(directionBalance\) \* 0\.45/);
   assert.match(strength, /attachMagnitudeRanks/);
-  assert.match(strength, /components\.acceleration/);\n  assert.match(strength, /if \(windowSize >= 60\) return 48/);\n  assert.match(strength, /if \(windowSize >= 30\) return 44/);\n  assert.match(strength, /if \(windowSize >= 15\) return 40/);\n  assert.match(strength, /return 32/);
+  assert.match(strength, /components\.acceleration/);
+  assert.match(strength, /if \(windowSize >= 60\) return 48/);
+  assert.match(strength, /if \(windowSize >= 30\) return 44/);
+  assert.match(strength, /if \(windowSize >= 15\) return 40/);
+  assert.match(strength, /return 32/);
 });
 
 test("v77 requires repeated confirmation before a strong 7-point display", async () => {
@@ -325,7 +329,8 @@ test("v74 renders movement or S/S+ immediately before the rate on the same basel
   assert.match(styles, /\.rate-value-line \{[^}]*align-items:baseline[^}]*justify-content:flex-end/);
   assert.match(styles, /\.rate-value \{[^}]*clamp\(24px,1\.95vw,28px\)/);
   assert.match(styles, /\.movement \{[^}]*font-size:14px/);
-  assert.match(styles, /\.synthetic-badge \{[^}]*font-size:7px/);\n  assert.match(styles, /\.synthetic-badge \{[^}]*border:0/);
+  assert.match(styles, /\.synthetic-badge \{[^}]*font-size:7px/);
+  assert.match(styles, /\.synthetic-badge \{[^}]*border:0/);
 });
 
 test("v60 wires direct cross-yen sources into self-correcting synthetic histories without replacing formal rates", async () => {
