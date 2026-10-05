@@ -94,6 +94,7 @@ button.chosen { border-color:var(--gold); background:#392d0c; color:#fff1b2; box
 .rate-value-line { display:flex; align-items:baseline; justify-content:flex-end; gap:5px; width:100%; min-width:0; overflow:visible; white-space:nowrap; }
 .rate-value { flex:0 0 auto; width:auto; min-width:0; padding:0 2px 0 0; color:#fff8df; text-align:right; font:800 clamp(24px,1.95vw,28px)/1 ui-monospace,"Cascadia Mono",monospace; font-variant-numeric:tabular-nums; letter-spacing:-.05em; white-space:nowrap; }
 .rate-value.synthetic { color:#9aa0a8; }
+.rate-value.fallback { color:#c6a657; }
 .rate-badges { display:flex; justify-content:flex-end; gap:3px; width:100%; min-width:0; }
 .flow-badge { display:grid; grid-template-columns:repeat(4,22px); gap:2px; white-space:nowrap; }
 .flow-direction { display:grid; place-items:center; width:22px; height:14px; box-sizing:border-box; border:1px solid currentColor; border-radius:3px; font:700 7px/1 ui-monospace,"Cascadia Mono",monospace; }
