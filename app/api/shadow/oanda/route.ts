@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 export const runtime = "edge";
 
-const OANDA_INSTRUMENTS = ["EUR_USD", "GBP_USD", "EUR_GBP"];
+const OANDA_INSTRUMENTS = ["USD_JPY", "EUR_USD", "GBP_USD", "AUD_USD", "EUR_JPY", "GBP_JPY", "AUD_JPY", "EUR_GBP", "EUR_AUD", "GBP_AUD"];
 
 type OandaPrice = {
   type?: string;
@@ -36,7 +36,7 @@ export async function GET(request: Request) {
     headers: {
       Authorization: `Bearer ${token}`,
       "Accept-Datetime-Format": "RFC3339",
-      "OANDA-Agent": "FX-Rate-Speaker-shadow/1.0",
+      "OANDA-Agent": "FX-Rate-Speaker-primary/1.0",
     },
     cache: "no-store",
     signal: request.signal,

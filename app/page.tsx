@@ -87,6 +87,7 @@ const RAPID_DISPLAY_HOLD_MS = 30 * 1000;
 const RAPID_AUDIO_MIN_REMAINING_MS = 15 * 1000;
 const COMMENTARY_MERGE_MS = 60 * 1000;
 const OANDA_SHADOW_STORAGE_KEY = "fx-rate-speaker-oanda-shadow-v1";
+const OANDA_PRIMARY_STALE_MS = 60 * 1000;
 const OANDA_SHADOW_MAX_RECORDS = 5000;
 const SYNTHETIC_STORAGE_KEY = "fx-rate-speaker-synthetic-learning-v1";
 const CALENDAR_AMBER_MINUTES = 30;
@@ -104,6 +105,7 @@ const STRENGTH_SIGNIFICANT_DIFFERENCE = 0.75;
 
 type Rate = { price: number; timestamp: number };
 type RateMap = Record<string, Rate>;
+type RateSource = "OANDA" | "OANDA_SYNTHETIC" | "YAHOO";
 type RateResponse = { rates?: RateMap; syntheticSources?: RateMap; syntheticActuals?: RateMap; fetchedAt?: number; error?: string };
 type Direction = "up" | "down" | "unchanged";
 type PlaybackCue = Direction | MovementNotification;
@@ -177,6 +179,7 @@ type MovementSnapshot = {
   notification: MovementNotification | null;
   state: MovementState;
   recentMove: number | null;
+  rapidMovePips: number | null;
 };
 type RateDisplayState = {
   direction: Direction;
@@ -582,6 +585,7 @@ export default function Home() {
   const [selected, setSelected] = useState<string[]>(["USD/JPY"]);
   const [intervalSeconds, setIntervalSeconds] = useState(30);
   const [rates, setRates] = useState<RateMap>({});
+  const [rateSources, setRateSources] = useState<Record<string, RateSource>>({});
   const [errors, setErrors] = useState<Record<string, boolean>>({});
   const [running, setRunning] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
@@ -643,6 +647,8 @@ export default function Home() {
   const graphFetchRef = useRef<AbortController | null>(null);
   const oandaShadowRef = useRef<Record<string, OandaShadowRecord[]>>({});
   const oandaEventSourceRef = useRef<EventSource | null>(null);
+  const oandaLiveRef = useRef<RateMap>({});
+  const yahooRatesRef = useRef<RateMap>({});
   const syntheticLearningRef = useRef<Record<string, SyntheticLearningState>>({});
   const rawSyntheticHistoryRef = useRef<Record<string, SyntheticPoint[]>>({});
   const syntheticOutputHistoryRef = useRef<Record<string, Rate[]>>({});
@@ -1021,6 +1027,7 @@ export default function Home() {
         notification: null,
         state: "NORMAL",
         recentMove: recentMovePips(currentHistory, pipSize, 6),
+        rapidMovePips: null,
       };
     }
     rateHistoryRef.current[code] = appended.history;
@@ -1030,6 +1037,7 @@ export default function Home() {
         notification: null,
         state: existingTracker.state,
         recentMove: recentMovePips(appended.history, pipSize, 6),
+        rapidMovePips: null,
       };
     }
     const transition = transitionMovement(existingTracker, analysis.candidate);
@@ -1050,10 +1058,14 @@ export default function Home() {
       volatilitySamples: `${analysis.thresholds.sampleCount}/${VOLATILITY_WINDOW}`,
       windows: `${RAPID_SHORT_WINDOW}/${RAPID_LONG_WINDOW}`,
     });
+    const rapidMovePips = transition.notification === "RAPID_UP" || transition.notification === "RAPID_DOWN"
+      ? Math.max(Math.abs(analysis.short.netPips), Math.abs(analysis.long.netPips))
+      : null;
     return {
       notification: transition.notification,
       state: transition.tracker.state,
       recentMove: analysis.thresholds.recentMove,
+      rapidMovePips,
     };
   }
 
@@ -1405,7 +1417,7 @@ export default function Home() {
       return {
         pair: code,
         kind: "急変",
-        text: `急変です。${flowCommentary(name, flow, movement.state)}`,
+        text: `急変です。${name}、直近約${(movement.rapidMovePips ?? 0).toFixed(1)}pips動いています。 ${flowCommentary(name, flow, movement.state)}`,
         level: "rapid",
         eventKey: movement.notification,
         priority: 100,
@@ -1637,10 +1649,71 @@ export default function Home() {
     return output;
   }
 
+  function freshOandaRate(code: string, now = Date.now()) {
+    const rate = oandaLiveRef.current[code];
+    if (!rate) return null;
+    const age = now - rate.timestamp * 1000;
+    return age >= -20_000 && age <= OANDA_PRIMARY_STALE_MS ? rate : null;
+  }
+
+  function syntheticOandaRate(code: string, now = Date.now()): Rate | null {
+    const direct = (symbol: string) => freshOandaRate(symbol, now);
+    const cross = (left: Rate | null, right: Rate | null, operation: "multiply" | "divide") => {
+      if (!left || !right || (operation === "divide" && right.price === 0)) return null;
+      const price = operation === "multiply" ? left.price * right.price : left.price / right.price;
+      return Number.isFinite(price) && price > 0
+        ? { price, timestamp: Math.min(left.timestamp, right.timestamp) }
+        : null;
+    };
+    if (code === "EUR/USD") return cross(direct("EUR/JPY"), direct("USD/JPY"), "divide");
+    if (code === "GBP/USD") return cross(direct("GBP/JPY"), direct("USD/JPY"), "divide");
+    if (code === "AUD/USD") return cross(direct("AUD/JPY"), direct("USD/JPY"), "divide");
+    if (code === "EUR/JPY") return cross(direct("EUR/USD"), direct("USD/JPY"), "multiply");
+    if (code === "GBP/JPY") return cross(direct("GBP/USD"), direct("USD/JPY"), "multiply");
+    if (code === "AUD/JPY") return cross(direct("AUD/USD"), direct("USD/JPY"), "multiply");
+    if (code === "EUR/GBP") return cross(direct("EUR/USD"), direct("GBP/USD"), "divide");
+    if (code === "EUR/AUD") return cross(direct("EUR/USD"), direct("AUD/USD"), "divide");
+    if (code === "GBP/AUD") return cross(direct("GBP/USD"), direct("AUD/USD"), "divide");
+    if (code === "USD/JPY") {
+      return cross(direct("EUR/JPY"), direct("EUR/USD"), "divide")
+        ?? cross(direct("GBP/JPY"), direct("GBP/USD"), "divide");
+    }
+    return null;
+  }
+
+  function applyAdoptedRates(yahooRates: RateMap) {
+    const now = Date.now();
+    const adopted: RateMap = {};
+    const sources: Record<string, RateSource> = {};
+    PAIRS.forEach((pair) => {
+      const direct = freshOandaRate(pair.code, now);
+      if (direct) {
+        adopted[pair.code] = direct;
+        sources[pair.code] = "OANDA";
+        return;
+      }
+      const synthetic = syntheticOandaRate(pair.code, now);
+      if (synthetic) {
+        adopted[pair.code] = synthetic;
+        sources[pair.code] = "OANDA_SYNTHETIC";
+        return;
+      }
+      const yahoo = yahooRates[pair.code];
+      if (yahoo) {
+        adopted[pair.code] = yahoo;
+        sources[pair.code] = "YAHOO";
+      }
+    });
+    ratesRef.current = adopted;
+    setRates(adopted);
+    setRateSources(sources);
+    return adopted;
+  }
+
   function updateRateSnapshot(freshRates: RateMap, syntheticSources?: RateMap, syntheticActuals?: RateMap) {
-    ratesRef.current = { ...ratesRef.current, ...freshRates };
-    setRates(ratesRef.current);
+    yahooRatesRef.current = { ...yahooRatesRef.current, ...freshRates };
     processSyntheticSnapshot(freshRates, syntheticSources, syntheticActuals);
+    return applyAdoptedRates(yahooRatesRef.current);
   }
 
   function auditSlowDirectRates(freshRates: RateMap, syntheticActuals: RateMap | undefined, fetchedAt?: number) {
@@ -1679,14 +1752,7 @@ export default function Home() {
     lastGraphGridRef.current = gridTimestamp;
     const nextSparklineHistories = { ...sparklineHistoriesRef.current };
     PAIRS.forEach((pair) => {
-      const direct = ratesRef.current[pair.code];
-      const synthetic = latestSyntheticRef.current[pair.code];
-      // Synthetic is preferred only while it is at least as current as the formal direct quote
-      // (allowing the existing 20-second source-alignment tolerance). This prevents an old
-      // EUR/USD or GBP/USD synthetic value from being copied into every 10-second graph slot.
-      const latest = synthetic && (!direct || synthetic.timestamp >= direct.timestamp - 20)
-        ? synthetic
-        : direct;
+      const latest = ratesRef.current[pair.code];
       if (!latest || !Number.isFinite(latest.price) || latest.price <= 0) return;
       nextSparklineHistories[pair.code] = appendSparklinePoint(nextSparklineHistories[pair.code] ?? [], {
         price: latest.price,
@@ -1704,7 +1770,7 @@ export default function Home() {
     const displayUpdates: Record<string, RateDisplayState> = {};
     const now = Date.now();
     PAIRS.forEach((pair) => {
-      const analysisRate = latestSyntheticRef.current[pair.code] ?? freshRates[pair.code];
+      const analysisRate = freshRates[pair.code];
       if (!analysisRate) return;
       const previous = previousAnalysisRatesRef.current[pair.code]?.price;
       const direction: Direction = previous !== undefined && analysisRate.price > previous
@@ -1778,10 +1844,10 @@ export default function Home() {
       const response = await fetch(`/api/rates?graph=${Date.now()}`, { cache: "no-store", signal: controller.signal });
       const data = await response.json() as RateResponse;
       if (!response.ok || !data.rates || runId !== runIdRef.current) return;
-      updateRateSnapshot(data.rates, data.syntheticSources, data.syntheticActuals);
+      const adoptedRates = updateRateSnapshot(data.rates, data.syntheticSources, data.syntheticActuals);
       const histories = recordGraphGridPoint();
       auditSlowDirectRates(data.rates, data.syntheticActuals, data.fetchedAt);
-      analyzeAllPairs(data.rates, histories);
+      analyzeAllPairs(adoptedRates, histories);
     } catch (error) {
       if (!controller.signal.aborted) console.debug("[FX Rate Speaker graph poll]", error);
     } finally {
@@ -1824,12 +1890,18 @@ export default function Home() {
     });
   }
 
-  function recordOandaShadow(message: OandaShadowMessage) {
-    if (!Number.isFinite(message.mid) || !["EUR/USD", "GBP/USD", "EUR/GBP"].includes(message.symbol)) return;
+  function recordOandaPrimary(message: OandaShadowMessage) {
+    if (!Number.isFinite(message.mid) || !PAIRS.some((pair) => pair.code === message.symbol)) return;
+    const providerMs = Date.parse(message.providerTimestamp);
+    const timestamp = Number.isFinite(providerMs)
+      ? Math.floor(providerMs / 1000)
+      : Math.floor(message.receivedTimestamp / 1000);
+    oandaLiveRef.current[message.symbol] = { price: message.mid, timestamp };
+
     const records = oandaShadowRef.current[message.symbol] ?? [];
     const previous = records.at(-1);
-    const yahoo = ratesRef.current[message.symbol];
-    const pipSize = 0.0001;
+    const yahoo = yahooRatesRef.current[message.symbol];
+    const pipSize = message.symbol.endsWith("/JPY") ? 0.01 : 0.0001;
     const record: OandaShadowRecord = {
       ...message,
       delta: previous ? message.mid - previous.mid : null,
@@ -1843,24 +1915,29 @@ export default function Home() {
       persistOandaShadow();
       logOandaShadowMetrics(message.symbol, nextRecords);
     }
+
+    applyAdoptedRates(yahooRatesRef.current);
+    setErrors((current) => ({ ...current, [message.symbol]: false }));
   }
 
-  function startOandaShadow(runId: number) {
+  function startOandaPrimary(runId: number) {
     oandaEventSourceRef.current?.close();
     const source = new EventSource("/api/shadow/oanda");
     oandaEventSourceRef.current = source;
     source.onmessage = (event) => {
       if (runId !== runIdRef.current || !runningRef.current) return;
       try {
-        recordOandaShadow(JSON.parse(event.data) as OandaShadowMessage);
+        recordOandaPrimary(JSON.parse(event.data) as OandaShadowMessage);
       } catch {
-        // Ignore a malformed shadow event. Formal Yahoo processing is isolated.
+        // Ignore a malformed OANDA event and continue with the current adopted/fallback rates.
       }
     };
     source.onerror = () => {
       source.close();
       if (oandaEventSourceRef.current === source) oandaEventSourceRef.current = null;
-      console.debug("[FX Rate Speaker OANDA shadow] disabled or disconnected");
+      oandaLiveRef.current = {};
+      applyAdoptedRates(yahooRatesRef.current);
+      console.debug("[FX Rate Speaker OANDA primary] disconnected; switched to Yahoo fallback");
     };
   }
 
@@ -1884,16 +1961,16 @@ export default function Home() {
       const freshRates = data.rates;
 
       const previousBeforeAnalysis = { ...previousAnalysisRatesRef.current };
-      updateRateSnapshot(freshRates, data.syntheticSources, data.syntheticActuals);
+      const adoptedRates = updateRateSnapshot(freshRates, data.syntheticSources, data.syntheticActuals);
       const nextSparklineHistories = sparklineHistoriesRef.current;
-      analyzeAllPairs(freshRates, nextSparklineHistories);
-      setErrors(Object.fromEntries(pairs.map((pair) => [pair, !freshRates[pair]])));
+      analyzeAllPairs(adoptedRates, nextSparklineHistories);
+      setErrors(Object.fromEntries(pairs.map((pair) => [pair, !adoptedRates[pair]])));
 
-      const readable = pairs.filter((pair) => freshRates[pair]);
+      const readable = pairs.filter((pair) => adoptedRates[pair]);
       const sequence = readable.map((code) => {
         const pair = PAIRS.find((item) => item.code === code)!;
-        const current = freshRates[code].price;
-        const analysisRate = latestSyntheticRef.current[code] ?? freshRates[code];
+        const current = adoptedRates[code].price;
+        const analysisRate = adoptedRates[code];
         const analysisCurrent = analysisRate.price;
         const previous = previousBeforeAnalysis[code]?.price;
         const direction: Direction = previous !== undefined && analysisCurrent > previous
@@ -2039,7 +2116,7 @@ export default function Home() {
     setRemainingSeconds(AUTO_STOP_SECONDS);
     workerRef.current?.postMessage({ type: "clockStart", runId });
     workerRef.current?.postMessage({ type: "graphStart", runId });
-    startOandaShadow(runId);
+    startOandaPrimary(runId);
     countdownRef.current = setInterval(() => {
       const remaining = Math.max(0, Math.ceil((endAtRef.current - Date.now()) / 1000));
       setRemainingSeconds(remaining);
@@ -2229,7 +2306,7 @@ export default function Home() {
           <header className="brand-block">
             <p className="eyebrow">FX RATE SPEAKER</p>
             <h1>FXレート読み上げ</h1>
-            <div className="brand-meta"><strong>v78</strong><span className={running ? "live" : ""}>{status}</span></div>
+            <div className="brand-meta"><strong>v79</strong><span className={running ? "live" : ""}>{status}</span></div>
           </header>
           {detail && <div className="error-banner" role="alert">{detail}</div>}
           <time className={`control-clock ${isClockAlertWindow(currentTime) ? "alert-window" : ""}`} dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>
@@ -2279,18 +2356,17 @@ export default function Home() {
               />
             ))}
           </div>
-          <p className="source-note">Yahoo Finance 1分足参考レート<br />傾向・急変は直近{VOLATILITY_WINDOW}変化で自動判定</p>
+          <p className="source-note">OANDA優先・Yahoo予備<br />傾向・急変は採用レートの直近{VOLATILITY_WINDOW}変化で自動判定</p>
         </aside>
 
         <section className="rate-column panel">
           <div className="rate-list">
             {PAIRS.map((pair) => {
               const rate = rates[pair.code];
-              const syntheticRate = latestSyntheticRef.current[pair.code];
-              const useSyntheticDisplay = SYNTHETIC_SYMBOLS.includes(pair.code as SyntheticSymbol)
-                && Boolean(syntheticRate)
-                && (!rate || syntheticRate!.timestamp >= rate.timestamp - 20);
-              const visibleRate = useSyntheticDisplay ? syntheticRate : rate;
+              const rateSource = rateSources[pair.code];
+              const useSyntheticDisplay = rateSource === "OANDA_SYNTHETIC";
+              const useYahooFallback = rateSource === "YAHOO";
+              const visibleRate = rate;
               const failed = errors[pair.code];
               const displayFailed = Boolean(failed && !visibleRate);
               const displayState = rateDisplayStates[pair.code];
@@ -2327,8 +2403,8 @@ export default function Home() {
                       {movement !== "NORMAL" && (
                         <span className={`movement ${movement}`} title={movementLabel(movement)} aria-label={movementLabel(movement)}>{movementSymbol(movement)}</span>
                       )}
-                      <div className={`rate-value ${useSyntheticDisplay ? "synthetic" : ""}`}
-                        title={useSyntheticDisplay ? "Synthetic補正レート" : "正式レート"}>
+                      <div className={`rate-value ${useSyntheticDisplay ? "synthetic" : useYahooFallback ? "fallback" : ""}`}
+                        title={useSyntheticDisplay ? "OANDA Syntheticレート" : useYahooFallback ? "Yahoo予備レート" : "OANDA直接レート"}>
                         {displayFailed ? "取得失敗" : visibleRate ? displayPrice(visibleRate.price, pair.yen) : "---"}
                       </div>
                     </div>

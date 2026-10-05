@@ -32,8 +32,8 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v78<\/title>/i.test(html),
-    "rendered output should contain preview metadata or the production v78 title",
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v79<\/title>/i.test(html),
+    "rendered output should contain preview metadata or the production v79 title",
   );
 });
 
@@ -46,7 +46,7 @@ test("v67 keeps modes 2, 3 and 4 NEWS audio", async () => {
   assert.match(source, /async function playCommentaryAlert/);
   assert.match(source, /\[987\.77, 1975\.54\][\s\S]*\[659\.25, 1318\.5\]/);
   assert.match(source, /commentary\.source === "NEWS"[\s\S]*"PRICE_RAPID"/);
-  assert.match(source, /<strong>v78<\/strong>/);
+  assert.match(source, /<strong>v79<\/strong>/);
   assert.match(source, />4 NEWS<\/button>/);
   assert.match(source, /audioModeRef\.current !== "mode4"/);
   assert.match(source, /NEWS_POLL_INTERVAL_MS = 60 \* 1000/);
@@ -106,20 +106,20 @@ test("v60 separates 30/60 second speech from 10 second silent graph polling and 
   assert.match(styles, /\.intervals \{ grid-template-columns:repeat\(2,1fr\)/);
 });
 
-test("v60 preserves the isolated OANDA pricing stream shadow for three pairs", async () => {
+test("v79 promotes the OANDA stream to all ten primary pairs with Yahoo fallback", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const route = await readFile(new URL("../app/api/shadow/oanda/route.ts", import.meta.url), "utf8");
-  assert.match(route, /"EUR_USD", "GBP_USD", "EUR_GBP"/);
+  assert.match(route, /"USD_JPY", "EUR_USD", "GBP_USD", "AUD_USD", "EUR_JPY", "GBP_JPY", "AUD_JPY", "EUR_GBP", "EUR_AUD", "GBP_AUD"/);
   assert.match(route, /OANDA_API_TOKEN/);
-  assert.match(route, /OANDA_ACCOUNT_ID/);
-  assert.match(route, /OANDA_ENVIRONMENT/);
   assert.match(route, /pricing\/stream/);
-  assert.match(source, /differencePips/);
-  assert.match(source, /realPriceChangesPerMinute/);
-  assert.match(source, /averageUpdateIntervalMs/);
-  assert.match(source, /maximumNoUpdateMs/);
-  assert.match(source, /averageSecondsEarlierThanYahoo/);
-  assert.match(source, /OANDA_SHADOW_STORAGE_KEY/);
+  assert.match(source, /type RateSource = "OANDA" \| "OANDA_SYNTHETIC" \| "YAHOO"/);
+  assert.match(source, /function freshOandaRate/);
+  assert.match(source, /function syntheticOandaRate/);
+  assert.match(source, /function applyAdoptedRates/);
+  assert.match(source, /sources\[pair\.code\] = "OANDA"/);
+  assert.match(source, /sources\[pair\.code\] = "OANDA_SYNTHETIC"/);
+  assert.match(source, /sources\[pair\.code\] = "YAHOO"/);
+  assert.match(source, /function startOandaPrimary/);
 });
 
 test("mode 4 uses key-free official feeds and isolates partial failures", async () => {
@@ -321,26 +321,38 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v78 shows adopted synthetic quotes in gray and removes S/S+ badges", async () => {
+test("v79 requires materially larger moves before speaking a rapid alert", async () => {
+  const movement = await readFile(new URL("../lib/movement.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(page, /const useSyntheticDisplay = SYNTHETIC_SYMBOLS\.includes/);
-  assert.match(page, /const visibleRate = useSyntheticDisplay \? syntheticRate : rate/);
-  assert.match(page, /className=\{`rate-value \$\{useSyntheticDisplay \? "synthetic" : ""\}`\}/);
-  assert.doesNotMatch(page, /className=\{`synthetic-badge/);
-  assert.match(styles, /\.rate-value\.synthetic \{ color:#9aa0a8; \}/);
+  assert.match(movement, /RAPID_DIRECTION_RATIO = 0\.7/);
+  assert.match(movement, /RAPID_SHORT_MIN_PIPS = 8/);
+  assert.match(movement, /RAPID_LONG_MIN_PIPS = 12/);
+  assert.match(movement, /Math\.max\(RAPID_SHORT_MIN_PIPS/);
+  assert.match(movement, /Math\.max\(RAPID_LONG_MIN_PIPS/);
+  assert.match(page, /直近約\$\{\(movement\.rapidMovePips \?\? 0\)\.toFixed\(1\)\}pips動いています/);
 });
 
-test("v60 wires direct cross-yen sources into self-correcting synthetic histories without replacing formal rates", async () => {
+test("v79 distinguishes OANDA direct, OANDA synthetic and Yahoo fallback quotes", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(page, /const rateSource = rateSources\[pair\.code\]/);
+  assert.match(page, /const useSyntheticDisplay = rateSource === "OANDA_SYNTHETIC"/);
+  assert.match(page, /const useYahooFallback = rateSource === "YAHOO"/);
+  assert.match(page, /OANDA Syntheticレート/);
+  assert.match(page, /Yahoo予備レート/);
+  assert.match(page, /OANDA直接レート/);
+  assert.match(styles, /\.rate-value\.synthetic \{ color:#9aa0a8; \}/);
+  assert.match(styles, /\.rate-value\.fallback \{ color:#c6a657; \}/);
+});
+
+test("v79 keeps legacy Yahoo synthetic learning only as background audit while adopted rates drive analysis", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const route = await readFile(new URL("../app/api/rates/route.ts", import.meta.url), "utf8");
-  assert.match(route, /"EUR\/JPY": "EURJPY=X"/);
-  assert.match(route, /"GBP\/JPY": "GBPJPY=X"/);
   assert.match(route, /syntheticSources/);
   assert.match(route, /syntheticActuals/);
   assert.match(page, /processSyntheticSnapshot/);
-  assert.match(page, /latestSyntheticRef\.current\[code\] \?\? freshRates\[code\]/);
+  assert.match(page, /const adoptedRates = updateRateSnapshot/);
+  assert.match(page, /analyzeAllPairs\(adoptedRates/);
   assert.match(page, /price: spokenPrice\(current, pair\.yen\)/);
   assert.match(page, /SYNTHETIC_STORAGE_KEY/);
-  assert.match(page, /Synthetic audit/);
 });
