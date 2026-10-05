@@ -322,11 +322,11 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v90 keeps the app version in one source file", async () => {
+test("v91 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 90/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 91/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -435,4 +435,21 @@ test("v79 keeps legacy Yahoo synthetic learning only as background audit while a
   assert.match(page, /analyzeAllPairs\(adoptedRates/);
   assert.match(page, /price: spokenPrice\(current, pair\.yen\)/);
   assert.match(page, /SYNTHETIC_STORAGE_KEY/);
+});
+
+
+test("v91 keeps calendar display polling independent from NEWS mode and warns in MARKET NOTE", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const calendar = await readFile(new URL("../app/api/calendar/route.ts", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(page, /async function pollCalendar\(\)/);
+  assert.match(page, /void pollCalendar\(\);[\s\S]*calendarTimerRef/);
+  assert.match(page, /const upcomingCalendarEvent = calendarEvents\.find/);
+  assert.match(page, /market-calendar-alert/);
+  assert.match(page, /重要指標まで\{upcomingCalendarMinutes\}分/);
+  assert.match(page, /\{calendarEvents\.length \? \(/);
+  assert.doesNotMatch(page, /audioMode === "mode4" && calendarEvents\.length/);
+  assert.match(calendar, /Promise\.allSettled\(SOURCES\.map\(\(url\) => fetchSource\(url\)\)\)/);
+  assert.match(calendar, /SOURCE_TIMEOUT_MS = 7_000/);
+  assert.match(styles, /\.market-calendar-alert\.proximity-red/);
 });

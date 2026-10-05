@@ -1440,60 +1440,60 @@ export default function Home() {
     return `${name}が発表されました。${values}。`;
   }
 
-  async function pollCalendar(runId: number) {
-    if (runId !== runIdRef.current || !runningRef.current || audioModeRef.current !== "mode4") return;
+  async function pollCalendar() {
     const controller = new AbortController();
+    calendarAbortRef.current?.abort();
     calendarAbortRef.current = controller;
     try {
       const response = await fetch(`/api/calendar?t=${Date.now()}`, { cache: "no-store", signal: controller.signal });
       const data = await response.json() as CalendarResponse;
       if (!response.ok || !data.events) throw new Error(data.error || "指標取得失敗");
-      if (runId !== runIdRef.current || audioModeRef.current !== "mode4") return;
       const fetchedAt = data.fetchedAt ?? 0;
       if (Date.now() - fetchedAt > CALENDAR_STALE_MS) {
         setCalendarStatus("stale");
         return;
       }
-      setCalendarEvents(data.events.filter((event) => Date.now() - event.scheduledAt <= CALENDAR_POST_EVENT_MS));
-      setCalendarStatus("receiving");
       const now = Date.now();
-      const newEntries: QueuedCommentary[] = [];
-      data.events.forEach((event) => {
-        const minutes = (event.scheduledAt - now) / 60_000;
-        const stage: "30" | "5" | "result" | null = event.actual && minutes <= 0 && minutes >= -20
-          ? "result" : minutes > 0 && minutes <= 5 ? "5" : minutes > 5 && minutes <= 30 ? "30" : null;
-        if (!stage) return;
-        const alertKey = `${event.id}:${stage}`;
-        if (calendarAlertedRef.current.has(alertKey)) return;
-        calendarAlertedRef.current.add(alertKey);
-        const timestamp = Date.now();
-        const entry: QueuedCommentary = {
-          id: alertKey,
-          timestamp,
-          source: "COMMENTARY",
-          pair: event.currency,
-          kind: stage === "result" ? `指標 ${event.level}` : `指標${stage}分前`,
-          text: calendarSpeech(event, stage),
-          level: event.level === "L3" || stage === "result" ? "important" : "normal",
-          priority: event.level === "L3" ? 48 : 38,
-        };
-        newEntries.push(entry);
-      });
-      if (newEntries.length) {
-        pendingCommentaryRef.current = [...pendingCommentaryRef.current, ...newEntries]
-          .sort((left, right) => right.priority - left.priority || right.timestamp - left.timestamp).slice(0, 8);
-        setCommentaryHistory((current) => [...newEntries.reverse(), ...current].slice(0, COMMENTARY_HISTORY_RETENTION_LIMIT));
+      setCalendarEvents(data.events.filter((event) => now - event.scheduledAt <= CALENDAR_POST_EVENT_MS));
+      setCalendarStatus("receiving");
+
+      if (runningRef.current && audioModeRef.current === "mode4") {
+        const newEntries: QueuedCommentary[] = [];
+        data.events.forEach((event) => {
+          const minutes = (event.scheduledAt - now) / 60_000;
+          const stage: "30" | "5" | "result" | null = event.actual && minutes <= 0 && minutes >= -20
+            ? "result" : minutes > 0 && minutes <= 5 ? "5" : minutes > 5 && minutes <= 30 ? "30" : null;
+          if (!stage) return;
+          const alertKey = `${event.id}:${stage}`;
+          if (calendarAlertedRef.current.has(alertKey)) return;
+          calendarAlertedRef.current.add(alertKey);
+          const timestamp = Date.now();
+          const entry: QueuedCommentary = {
+            id: alertKey,
+            timestamp,
+            source: "COMMENTARY",
+            pair: event.currency,
+            kind: stage === "result" ? `指標 ${event.level}` : `指標${stage}分前`,
+            text: calendarSpeech(event, stage),
+            level: event.level === "L3" || stage === "result" ? "important" : "normal",
+            priority: event.level === "L3" ? 48 : 38,
+          };
+          newEntries.push(entry);
+        });
+        if (newEntries.length) {
+          pendingCommentaryRef.current = [...pendingCommentaryRef.current, ...newEntries]
+            .sort((left, right) => right.priority - left.priority || right.timestamp - left.timestamp).slice(0, 8);
+          setCommentaryHistory((current) => [...newEntries.reverse(), ...current].slice(0, COMMENTARY_HISTORY_RETENTION_LIMIT));
+        }
       }
     } catch (error) {
-      if (!controller.signal.aborted && runId === runIdRef.current && audioModeRef.current === "mode4") {
+      if (!controller.signal.aborted) {
         console.warn("FX Rate Speaker calendar fetch failed", error);
         setCalendarStatus("error");
       }
     } finally {
       if (calendarAbortRef.current === controller) calendarAbortRef.current = null;
-      if (runId === runIdRef.current && runningRef.current && audioModeRef.current === "mode4") {
-        calendarTimerRef.current = window.setTimeout(() => { void pollCalendar(runId); }, CALENDAR_POLL_INTERVAL_MS);
-      }
+      calendarTimerRef.current = window.setTimeout(() => { void pollCalendar(); }, CALENDAR_POLL_INTERVAL_MS);
     }
   }
 
@@ -1501,18 +1501,23 @@ export default function Home() {
     if (!running || audioMode !== "mode4") return;
     const runId = runIdRef.current;
     void pollNews(runId);
-    void pollCalendar(runId);
     return () => {
       if (newsTimerRef.current) window.clearTimeout(newsTimerRef.current);
       newsTimerRef.current = null;
       newsAbortRef.current?.abort();
       newsAbortRef.current = null;
+    };
+  }, [running, audioMode]);
+
+  useEffect(() => {
+    void pollCalendar();
+    return () => {
       if (calendarTimerRef.current) window.clearTimeout(calendarTimerRef.current);
       calendarTimerRef.current = null;
       calendarAbortRef.current?.abort();
       calendarAbortRef.current = null;
     };
-  }, [running, audioMode]);
+  }, []);
 
   useEffect(() => {
     const restoreTimer = window.setTimeout(() => {
@@ -1582,10 +1587,6 @@ export default function Home() {
     newsSpeechActiveRef.current = false;
     pendingNewsRef.current = [];
     pendingCommentaryRef.current = [];
-    if (calendarTimerRef.current) clearTimeout(calendarTimerRef.current);
-    calendarTimerRef.current = null;
-    calendarAbortRef.current?.abort();
-    calendarAbortRef.current = null;
     graphFetchRef.current?.abort();
     graphFetchRef.current = null;
     oandaEventSourceRef.current?.close();
@@ -2466,6 +2467,13 @@ export default function Home() {
   const visibleCommentaryHistory = selectVisibleHistory(commentaryHistory, currentTime);
   const currentMarketNotice = activeMarketNotice(marketNotices, currentTime);
   const marketMessage = currentMarketNotice?.message || fallbackMarketProverb(currentTime);
+  const upcomingCalendarEvent = calendarEvents.find((event) => {
+    const minutes = (event.scheduledAt - currentTime) / 60_000;
+    return minutes >= 0 && minutes <= CALENDAR_AMBER_MINUTES;
+  }) ?? null;
+  const upcomingCalendarMinutes = upcomingCalendarEvent
+    ? Math.max(0, Math.ceil((upcomingCalendarEvent.scheduledAt - currentTime) / 60_000))
+    : null;
   const strengthResults = useMemo(() => Object.fromEntries(CURRENCY_STRENGTH_WINDOWS.map((windowSize) => [
     windowSize,
     calculateCurrencyStrength(sparklineHistories, windowSize),
@@ -2541,7 +2549,13 @@ export default function Home() {
           </header>
           {detail && <div className="error-banner" role="alert">{detail}</div>}
           <time className={`control-clock ${isClockAlertWindow(currentTime) ? "alert-window" : ""}`} dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>
-          <section className={`market-notice ${currentMarketNotice ? "scheduled" : "proverb"}`} aria-live="polite">
+          <section className={`market-notice ${currentMarketNotice ? "scheduled" : "proverb"} ${upcomingCalendarEvent ? "indicator-near" : ""}`} aria-live="polite">
+            {upcomingCalendarEvent && upcomingCalendarMinutes !== null && (
+              <div className={`market-calendar-alert ${calendarProximityClass(upcomingCalendarMinutes)}`}>
+                <span>⚠ 重要指標まで{upcomingCalendarMinutes}分</span>
+                <strong>{upcomingCalendarEvent.currency} {upcomingCalendarEvent.title}</strong>
+              </div>
+            )}
             <div className="market-notice-head">
               <span>{currentMarketNotice ? marketNoticeDisplayRange(currentMarketNotice, currentTime) : "MARKET NOTE"}</span>
               <button type="button" onClick={() => setMarketNoticeAdminOpen(true)}>管理</button>
@@ -2720,7 +2734,7 @@ export default function Home() {
             </div>
           </div>
           <div className="calendar-zone">
-            {audioMode === "mode4" && calendarEvents.length ? (
+            {calendarEvents.length ? (
               <div className="calendar-list">
                 {calendarEvents.slice(0, 3).map((event) => {
                   const minutes = Math.round((event.scheduledAt - currentTime) / 60_000);
@@ -2735,7 +2749,7 @@ export default function Home() {
                   </article>;
                 })}
               </div>
-            ) : <p className="calendar-empty">{audioMode === "mode4" ? (calendarStatus === "error" || calendarStatus === "stale" ? "指標情報を再取得しています" : "重要指標を確認中") : "モード4で取得します"}</p>}
+            ) : <p className="calendar-empty">{calendarStatus === "error" || calendarStatus === "stale" ? "指標情報を再取得しています" : "重要指標を確認中"}</p>}
           </div>
         </section>
       </div>
