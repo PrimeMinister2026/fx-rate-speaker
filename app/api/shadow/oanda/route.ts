@@ -17,10 +17,25 @@ function environmentBase(environment: string | undefined) {
     : "https://stream-fxpractice.oanda.com";
 }
 
+function restEnvironmentBase(environment: string | undefined) {
+  return environment?.toLowerCase() === "live"
+    ? "https://api-fxtrade.oanda.com"
+    : "https://api-fxpractice.oanda.com";
+}
+
 export async function GET(request: Request) {
   const token = process.env.OANDA_API_TOKEN;
   const accountId = process.env.OANDA_ACCOUNT_ID;
+  const environment = process.env.OANDA_ENVIRONMENT;
+  const health = new URL(request.url).searchParams.get("health") === "1";
   if (!token || !accountId) {
+    if (health) {
+      return Response.json({
+        configured: false,
+        reachable: false,
+        reason: "OANDA credentials are not configured",
+      }, { headers: { "Cache-Control": "no-store" } });
+    }
     return Response.json({
       enabled: false,
       error: "OANDA shadow is not configured",
@@ -28,7 +43,35 @@ export async function GET(request: Request) {
     }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
 
-  const url = new URL(`/v3/accounts/${encodeURIComponent(accountId)}/pricing/stream`, environmentBase(process.env.OANDA_ENVIRONMENT));
+  if (health) {
+    const healthUrl = new URL(`/v3/accounts/${encodeURIComponent(accountId)}/pricing`, restEnvironmentBase(environment));
+    healthUrl.searchParams.set("instruments", "USD_JPY");
+    try {
+      const healthResponse = await fetch(healthUrl, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Accept-Datetime-Format": "RFC3339",
+          "OANDA-Agent": "FX-Rate-Speaker-health/1.0",
+        },
+        cache: "no-store",
+      });
+      return Response.json({
+        configured: true,
+        reachable: healthResponse.ok,
+        upstreamStatus: healthResponse.status,
+        environment: environment?.toLowerCase() === "live" ? "live" : "practice",
+      }, { headers: { "Cache-Control": "no-store" } });
+    } catch {
+      return Response.json({
+        configured: true,
+        reachable: false,
+        reason: "OANDA health request failed",
+        environment: environment?.toLowerCase() === "live" ? "live" : "practice",
+      }, { headers: { "Cache-Control": "no-store" } });
+    }
+  }
+
+  const url = new URL(`/v3/accounts/${encodeURIComponent(accountId)}/pricing/stream`, environmentBase(environment));
   url.searchParams.set("instruments", OANDA_INSTRUMENTS.join(","));
   url.searchParams.set("snapshot", "true");
 
