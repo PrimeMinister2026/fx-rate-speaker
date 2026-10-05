@@ -2,7 +2,7 @@ export const TREND_WINDOW = 5;
 export const TREND_DIRECTION_COUNT = 4;
 export const RAPID_SHORT_WINDOW = 5;
 export const RAPID_LONG_WINDOW = 10;
-export const RAPID_DIRECTION_RATIO = 0.6;
+export const RAPID_DIRECTION_RATIO = 0.7;
 
 // Dynamic thresholds are based on each pair's own recent absolute moves.
 export const VOLATILITY_WINDOW = 25;
@@ -10,6 +10,8 @@ export const MIN_VOLATILITY_SAMPLES = 20;
 export const TREND_VOLATILITY_MULTIPLIER = 3;
 export const RAPID_SHORT_VOLATILITY_MULTIPLIER = 6;
 export const RAPID_LONG_VOLATILITY_MULTIPLIER = 12;
+export const RAPID_SHORT_MIN_PIPS = 8;
+export const RAPID_LONG_MIN_PIPS = 12;
 export const JPY_RECENT_MOVE_MIN_PIPS = 0.2;
 export const JPY_RECENT_MOVE_MAX_PIPS = 5;
 export const NON_JPY_RECENT_MOVE_MIN_PIPS = 0.2;
@@ -100,8 +102,8 @@ function dynamicThresholds(history: RatePoint[], pipSize: number): MovementThres
   return {
     recentMove,
     trend: recentMove * TREND_VOLATILITY_MULTIPLIER,
-    rapidShort: recentMove * RAPID_SHORT_VOLATILITY_MULTIPLIER,
-    rapidLong: recentMove * RAPID_LONG_VOLATILITY_MULTIPLIER,
+    rapidShort: Math.max(RAPID_SHORT_MIN_PIPS, recentMove * RAPID_SHORT_VOLATILITY_MULTIPLIER),
+    rapidLong: Math.max(RAPID_LONG_MIN_PIPS, recentMove * RAPID_LONG_VOLATILITY_MULTIPLIER),
     sampleCount,
   };
 }
