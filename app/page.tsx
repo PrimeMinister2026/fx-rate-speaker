@@ -583,6 +583,7 @@ function Sparkline({ history, movement, direction }: {
 
 export default function Home() {
   const [selected, setSelected] = useState<string[]>(["USD/JPY"]);
+  const selectedRef = useRef<string[]>(["USD/JPY"]);
   const [intervalSeconds, setIntervalSeconds] = useState(30);
   const [rates, setRates] = useState<RateMap>({});
   const [rateSources, setRateSources] = useState<Record<string, RateSource>>({});
@@ -2139,10 +2140,13 @@ export default function Home() {
   }
 
   function togglePair(code: string) {
-    if (running) return;
-    setSelected((current) => current.includes(code)
-      ? current.filter((item) => item !== code)
-      : [...current, code]);
+    setSelected((current) => {
+      const next = current.includes(code)
+        ? current.filter((item) => item !== code)
+        : [...current, code];
+      selectedRef.current = next;
+      return next;
+    });
   }
 
   useEffect(() => {
@@ -2191,7 +2195,7 @@ export default function Home() {
     workerRef.current = worker;
     worker.onmessage = (event) => {
       if (event.data.type === "tick" && event.data.runId === runIdRef.current) {
-        void fetchAndSpeak(runIdRef.current, [...selected], intervalSeconds);
+        void fetchAndSpeak(runIdRef.current, [...selectedRef.current], intervalSeconds);
       }
       if (event.data.type === "clock" && event.data.runId === runIdRef.current) {
         speakCurrentTime(runIdRef.current, event.data.timestamp);
@@ -2201,7 +2205,7 @@ export default function Home() {
       }
     };
     return () => worker.terminate();
-  }, [selected, intervalSeconds]);
+  }, [intervalSeconds]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -2307,7 +2311,7 @@ export default function Home() {
           <header className="brand-block">
             <p className="eyebrow">FX RATE SPEAKER</p>
             <h1>FXレート読み上げ</h1>
-            <div className="brand-meta"><strong>v80</strong><span className={running ? "live" : ""}>{status}</span></div>
+            <div className="brand-meta"><strong>v81</strong><span className={running ? "live" : ""}>{status}</span></div>
           </header>
           {detail && <div className="error-banner" role="alert">{detail}</div>}
           <time className={`control-clock ${isClockAlertWindow(currentTime) ? "alert-window" : ""}`} dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>
@@ -2384,10 +2388,10 @@ export default function Home() {
               const rapid = movement === "RAPID_UP" || movement === "RAPID_DOWN";
               const volatility = shortVolatilityLevel(history, pair.yen ? 0.01 : 0.0001);
               return (
-                <article className={`rate-row state-${movement.toLowerCase()} ${selected.includes(pair.code) ? "selected" : ""} ${displayFailed ? "error" : ""} ${rapid ? "rapid" : ""} ${running ? "selection-locked" : ""}`} key={pair.code}
-                  onClick={() => { if (!running) togglePair(pair.code); }} aria-pressed={selected.includes(pair.code)}
-                  role="button" tabIndex={running ? -1 : 0} aria-disabled={running}
-                  onKeyDown={(event) => { if (!running && event.key === "Enter") togglePair(pair.code); }}
+                <article className={`rate-row state-${movement.toLowerCase()} ${selected.includes(pair.code) ? "selected" : ""} ${displayFailed ? "error" : ""} ${rapid ? "rapid" : ""}`} key={pair.code}
+                  onClick={() => togglePair(pair.code)} aria-pressed={selected.includes(pair.code)}
+                  role="button" tabIndex={0}
+                  onKeyDown={(event) => { if (event.key === "Enter") togglePair(pair.code); }}
                   aria-label={`${pair.code}を読み上げ対象${selected.includes(pair.code) ? "から外す" : "にする"}`}>
                   <div className="rate-identity">
                     <div className="rate-title"><span className="selection-dot" /><strong>{pair.code}</strong></div>
