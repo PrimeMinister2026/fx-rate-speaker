@@ -2229,7 +2229,7 @@ export default function Home() {
           <header className="brand-block">
             <p className="eyebrow">FX RATE SPEAKER</p>
             <h1>FXレート読み上げ</h1>
-            <div className="brand-meta"><strong>v77</strong><span className={running ? "live" : ""}>{status}</span></div>
+            <div className="brand-meta"><strong>v78</strong><span className={running ? "live" : ""}>{status}</span></div>
           </header>
           {detail && <div className="error-banner" role="alert">{detail}</div>}
           <time className={`control-clock ${isClockAlertWindow(currentTime) ? "alert-window" : ""}`} dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>
@@ -2286,7 +2286,13 @@ export default function Home() {
           <div className="rate-list">
             {PAIRS.map((pair) => {
               const rate = rates[pair.code];
+              const syntheticRate = latestSyntheticRef.current[pair.code];
+              const useSyntheticDisplay = SYNTHETIC_SYMBOLS.includes(pair.code as SyntheticSymbol)
+                && Boolean(syntheticRate)
+                && (!rate || syntheticRate!.timestamp >= rate.timestamp - 20);
+              const visibleRate = useSyntheticDisplay ? syntheticRate : rate;
               const failed = errors[pair.code];
+              const displayFailed = Boolean(failed && !visibleRate);
               const displayState = rateDisplayStates[pair.code];
               const history = sparklineHistories[pair.code] ?? [];
               const longHistory = history.slice(-SPARKLINE_LONG_WINDOW);
@@ -2301,7 +2307,7 @@ export default function Home() {
               const rapid = movement === "RAPID_UP" || movement === "RAPID_DOWN";
               const volatility = shortVolatilityLevel(history, pair.yen ? 0.01 : 0.0001);
               return (
-                <article className={`rate-row state-${movement.toLowerCase()} ${selected.includes(pair.code) ? "selected" : ""} ${failed ? "error" : ""} ${rapid ? "rapid" : ""} ${running ? "selection-locked" : ""}`} key={pair.code}
+                <article className={`rate-row state-${movement.toLowerCase()} ${selected.includes(pair.code) ? "selected" : ""} ${displayFailed ? "error" : ""} ${rapid ? "rapid" : ""} ${running ? "selection-locked" : ""}`} key={pair.code}
                   onClick={() => { if (!running) togglePair(pair.code); }} aria-pressed={selected.includes(pair.code)}
                   role="button" tabIndex={running ? -1 : 0} aria-disabled={running}
                   onKeyDown={(event) => { if (!running && event.key === "Enter") togglePair(pair.code); }}
@@ -2309,7 +2315,7 @@ export default function Home() {
                   <div className="rate-identity">
                     <div className="rate-title"><span className="selection-dot" /><strong>{pair.code}</strong></div>
                     <div className="rate-meta">
-                      <time>{rate && !failed ? new Date(rate.timestamp * 1000).toLocaleTimeString("ja-JP", { hour12: false }) : "--:--:--"}</time>
+                      <time>{visibleRate && !displayFailed ? new Date(visibleRate.timestamp * 1000).toLocaleTimeString("ja-JP", { hour12: false }) : "--:--:--"}</time>
                       <span className={`volatility-badge v${volatility}`} title={`短期ボラティリティ V${volatility}`}>V{volatility}</span>
                     </div>
                   </div>
@@ -2321,13 +2327,10 @@ export default function Home() {
                       {movement !== "NORMAL" && (
                         <span className={`movement ${movement}`} title={movementLabel(movement)} aria-label={movementLabel(movement)}>{movementSymbol(movement)}</span>
                       )}
-                      {movement === "NORMAL" && SYNTHETIC_SYMBOLS.includes(pair.code as SyntheticSymbol) && (
-                        <span className={`synthetic-badge ${syntheticStatuses[pair.code] ?? "RAW"}`}
-                          title={`Synthetic ${syntheticStatuses[pair.code] ?? "RAW"}`}>
-                          {syntheticStatuses[pair.code] === "CORRECTED" ? "S+" : "S"}
-                        </span>
-                      )}
-                      <div className="rate-value">{failed ? "取得失敗" : rate ? displayPrice(rate.price, pair.yen) : "---"}</div>
+                      <div className={`rate-value ${useSyntheticDisplay ? "synthetic" : ""}`}
+                        title={useSyntheticDisplay ? "Synthetic補正レート" : "正式レート"}>
+                        {displayFailed ? "取得失敗" : visibleRate ? displayPrice(visibleRate.price, pair.yen) : "---"}
+                      </div>
                     </div>
                     <div className="rate-badges">
                       <span className="flow-badge" title={`60点 ${directionLabel(longDirection)}・30点 ${directionLabel(chartDirection)}・15点 ${directionLabel(midDirection)}・7点 ${directionLabel(recentDirection)}`}>
