@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "FX Rate Speaker v80",
+  title: "FX Rate Speaker v81",
   description: "最新FXレートを一定時間ごとに日本語で読み上げます。",
   icons: {
     icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
