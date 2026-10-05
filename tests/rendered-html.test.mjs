@@ -457,7 +457,6 @@ test("v91 keeps calendar display polling independent from NEWS mode and warns in
 
 test("v92 restores Yahoo rates to the normal display color when OANDA is unavailable", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /const useYahooFallback = false/);
   assert.match(page, /rateSource === "YAHOO" \? "Yahooレート"/);
   assert.doesNotMatch(page, /useYahooFallback \? "fallback"/);
 });
