@@ -32,8 +32,8 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v79<\/title>/i.test(html),
-    "rendered output should contain preview metadata or the production v79 title",
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v80<\/title>/i.test(html),
+    "rendered output should contain preview metadata or the production v80 title",
   );
 });
 
@@ -46,7 +46,7 @@ test("v67 keeps modes 2, 3 and 4 NEWS audio", async () => {
   assert.match(source, /async function playCommentaryAlert/);
   assert.match(source, /\[987\.77, 1975\.54\][\s\S]*\[659\.25, 1318\.5\]/);
   assert.match(source, /commentary\.source === "NEWS"[\s\S]*"PRICE_RAPID"/);
-  assert.match(source, /<strong>v79<\/strong>/);
+  assert.match(source, /<strong>v80<\/strong>/);
   assert.match(source, />4 NEWS<\/button>/);
   assert.match(source, /audioModeRef\.current !== "mode4"/);
   assert.match(source, /NEWS_POLL_INTERVAL_MS = 60 \* 1000/);
@@ -321,14 +321,17 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v79 requires materially larger moves before speaking a rapid alert", async () => {
+test("v80 normalizes rapid alerts to each pair's own recent volatility range", async () => {
   const movement = await readFile(new URL("../lib/movement.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(movement, /RAPID_DIRECTION_RATIO = 0\.7/);
-  assert.match(movement, /RAPID_SHORT_MIN_PIPS = 8/);
-  assert.match(movement, /RAPID_LONG_MIN_PIPS = 12/);
-  assert.match(movement, /Math\.max\(RAPID_SHORT_MIN_PIPS/);
-  assert.match(movement, /Math\.max\(RAPID_LONG_MIN_PIPS/);
+  assert.match(movement, /RAPID_SHORT_RANGE_RATIO = 0\.35/);
+  assert.match(movement, /RAPID_LONG_RANGE_RATIO = 0\.60/);
+  assert.match(movement, /const recentRange = \(Math\.max\(\.\.\.prices\) - Math\.min\(\.\.\.prices\)\) \/ pipSize/);
+  assert.match(movement, /recentRange \* RAPID_SHORT_RANGE_RATIO/);
+  assert.match(movement, /recentRange \* RAPID_LONG_RANGE_RATIO/);
+  assert.doesNotMatch(movement, /RAPID_SHORT_MIN_PIPS|RAPID_LONG_MIN_PIPS/);
+  assert.match(page, /recentRange:/);
   assert.match(page, /直近約\$\{\(movement\.rapidMovePips \?\? 0\)\.toFixed\(1\)\}pips動いています/);
 });
 

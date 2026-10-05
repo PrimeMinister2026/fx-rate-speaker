@@ -1052,6 +1052,7 @@ export default function Home() {
         ? `${analysis.long.netPips >= 0 ? "+" : ""}${analysis.long.netPips.toFixed(1)} pips`
         : "履歴不足",
       recentMove: `${analysis.thresholds.recentMove.toFixed(2)} pips`,
+      recentRange: `${analysis.thresholds.recentRange.toFixed(2)} pips`,
       trendThreshold: `${analysis.thresholds.trend.toFixed(2)} pips`,
       rapid5: `${analysis.thresholds.rapidShort.toFixed(2)} pips`,
       rapid10: `${analysis.thresholds.rapidLong.toFixed(2)} pips`,
@@ -2306,7 +2307,7 @@ export default function Home() {
           <header className="brand-block">
             <p className="eyebrow">FX RATE SPEAKER</p>
             <h1>FXレート読み上げ</h1>
-            <div className="brand-meta"><strong>v79</strong><span className={running ? "live" : ""}>{status}</span></div>
+            <div className="brand-meta"><strong>v80</strong><span className={running ? "live" : ""}>{status}</span></div>
           </header>
           {detail && <div className="error-banner" role="alert">{detail}</div>}
           <time className={`control-clock ${isClockAlertWindow(currentTime) ? "alert-window" : ""}`} dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>

@@ -8,10 +8,10 @@ export const RAPID_DIRECTION_RATIO = 0.7;
 export const VOLATILITY_WINDOW = 25;
 export const MIN_VOLATILITY_SAMPLES = 20;
 export const TREND_VOLATILITY_MULTIPLIER = 3;
-export const RAPID_SHORT_VOLATILITY_MULTIPLIER = 6;
-export const RAPID_LONG_VOLATILITY_MULTIPLIER = 12;
-export const RAPID_SHORT_MIN_PIPS = 8;
-export const RAPID_LONG_MIN_PIPS = 12;
+export const RAPID_SHORT_VOLATILITY_MULTIPLIER = 4.5;
+export const RAPID_LONG_VOLATILITY_MULTIPLIER = 8;
+export const RAPID_SHORT_RANGE_RATIO = 0.35;
+export const RAPID_LONG_RANGE_RATIO = 0.60;
 export const JPY_RECENT_MOVE_MIN_PIPS = 0.2;
 export const JPY_RECENT_MOVE_MAX_PIPS = 5;
 export const NON_JPY_RECENT_MOVE_MIN_PIPS = 0.2;
@@ -35,6 +35,7 @@ type WindowStats = {
 
 export type MovementThresholds = {
   recentMove: number;
+  recentRange: number;
   trend: number;
   rapidShort: number;
   rapidLong: number;
@@ -98,12 +99,22 @@ export function recentMovePips(history: RatePoint[], pipSize: number, minimumSam
 function dynamicThresholds(history: RatePoint[], pipSize: number): MovementThresholds | null {
   const recentMove = recentMovePips(history, pipSize);
   if (recentMove === null) return null;
+  const points = history.slice(-(VOLATILITY_WINDOW + 1));
+  const prices = points.map((point) => point.price);
+  const recentRange = (Math.max(...prices) - Math.min(...prices)) / pipSize;
   const sampleCount = Math.min(history.length - 1, VOLATILITY_WINDOW);
   return {
     recentMove,
+    recentRange,
     trend: recentMove * TREND_VOLATILITY_MULTIPLIER,
-    rapidShort: Math.max(RAPID_SHORT_MIN_PIPS, recentMove * RAPID_SHORT_VOLATILITY_MULTIPLIER),
-    rapidLong: Math.max(RAPID_LONG_MIN_PIPS, recentMove * RAPID_LONG_VOLATILITY_MULTIPLIER),
+    rapidShort: Math.max(
+      recentMove * RAPID_SHORT_VOLATILITY_MULTIPLIER,
+      recentRange * RAPID_SHORT_RANGE_RATIO,
+    ),
+    rapidLong: Math.max(
+      recentMove * RAPID_LONG_VOLATILITY_MULTIPLIER,
+      recentRange * RAPID_LONG_RANGE_RATIO,
+    ),
     sampleCount,
   };
 }
