@@ -87,7 +87,7 @@ const RAPID_DISPLAY_HOLD_MS = 30 * 1000;
 const RAPID_AUDIO_MIN_REMAINING_MS = 15 * 1000;
 const COMMENTARY_MERGE_MS = 60 * 1000;
 const OANDA_SHADOW_STORAGE_KEY = "fx-rate-speaker-oanda-shadow-v1";
-const OANDA_PRIMARY_STALE_MS = 15 * 1000;
+const OANDA_PRIMARY_STALE_MS = 60 * 1000;
 const OANDA_SHADOW_MAX_RECORDS = 5000;
 const SYNTHETIC_STORAGE_KEY = "fx-rate-speaker-synthetic-learning-v1";
 const CALENDAR_AMBER_MINUTES = 30;
@@ -1937,7 +1937,9 @@ export default function Home() {
     source.onerror = () => {
       source.close();
       if (oandaEventSourceRef.current === source) oandaEventSourceRef.current = null;
-      console.debug("[FX Rate Speaker OANDA primary] disconnected; Yahoo fallback remains available");
+      oandaLiveRef.current = {};
+      applyAdoptedRates(yahooRatesRef.current);
+      console.debug("[FX Rate Speaker OANDA primary] disconnected; switched to Yahoo fallback");
     };
   }
 
