@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v91<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v94<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -322,11 +322,11 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v93 keeps the app version in one source file", async () => {
+test("v94 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 93/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 94/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -412,17 +412,16 @@ test("v80 normalizes rapid alerts to each pair's own recent volatility range", a
   assert.match(page, /直近約\$\{\(movement\.rapidMovePips \?\? 0\)\.toFixed\(1\)\}pips動いています/);
 });
 
-test("v79 distinguishes OANDA direct, OANDA synthetic and Yahoo fallback quotes", async () => {
+test("v94 keeps OANDA synthetic gray while Yahoo uses the normal rate color", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(page, /const rateSource = rateSources\[pair\.code\]/);
   assert.match(page, /const useSyntheticDisplay = rateSource === "OANDA_SYNTHETIC"/);
-  assert.match(page, /const useYahooFallback = rateSource === "YAHOO"/);
   assert.match(page, /OANDA Syntheticレート/);
-  assert.match(page, /Yahoo予備レート/);
+  assert.match(page, /rateSource === "YAHOO" \? "Yahooレート"/);
   assert.match(page, /OANDA直接レート/);
   assert.match(styles, /\.rate-value\.synthetic \{ color:#9aa0a8; \}/);
-  assert.match(styles, /\.rate-value\.fallback \{ color:#c6a657; \}/);
+  assert.doesNotMatch(page, /Yahoo予備レート/);
 });
 
 test("v79 keeps legacy Yahoo synthetic learning only as background audit while adopted rates drive analysis", async () => {
@@ -469,4 +468,15 @@ test("v93 exposes reverse synthetic diagnostics for direct USD quotes", async ()
   assert.match(route, /reverseBaseComparisons/);
   assert.match(route, /reverseBaseSyncedComparisons/);
   assert.match(route, /reverseSyntheticPrice/);
+});
+
+
+test("v94 builds EURUSD and GBPUSD from direct JPY crosses for fresher 10-second monitoring", async () => {
+  const route = await readFile(new URL("../app/api/rates/route.ts", import.meta.url), "utf8");
+  assert.match(route, /"EUR\/JPY": "EURJPY=X"/);
+  assert.match(route, /"GBP\/JPY": "GBPJPY=X"/);
+  assert.match(route, /if \(eurJpy && usdJpy\) rates\["EUR\/USD"\] = cross\(eurJpy, usdJpy, "divide"\)/);
+  assert.match(route, /if \(gbpJpy && usdJpy\) rates\["GBP\/USD"\] = cross\(gbpJpy, usdJpy, "divide"\)/);
+  assert.match(route, /if \(audJpy && usdJpy\) rates\["AUD\/USD"\] = cross\(audJpy, usdJpy, "divide"\)/);
+  assert.match(route, /rateConstruction:/);
 });
