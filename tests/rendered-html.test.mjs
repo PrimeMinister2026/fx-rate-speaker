@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v94<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v95<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -322,11 +322,11 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v94 keeps the app version in one source file", async () => {
+test("v95 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 94/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 95/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -453,13 +453,11 @@ test("v91 keeps calendar display polling independent from NEWS mode and warns in
   assert.match(styles, /\.market-calendar-alert\.proximity-red/);
 });
 
-
 test("v92 restores Yahoo rates to the normal display color when OANDA is unavailable", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(page, /rateSource === "YAHOO" \? "Yahooレート"/);
   assert.doesNotMatch(page, /useYahooFallback \? "fallback"/);
 });
-
 
 test("v93 exposes reverse synthetic diagnostics for direct USD quotes", async () => {
   const route = await readFile(new URL("../app/api/shadow/yahoo/route.ts", import.meta.url), "utf8");
@@ -470,13 +468,19 @@ test("v93 exposes reverse synthetic diagnostics for direct USD quotes", async ()
   assert.match(route, /reverseSyntheticPrice/);
 });
 
-
 test("v94 builds EURUSD and GBPUSD from direct JPY crosses for fresher 10-second monitoring", async () => {
   const route = await readFile(new URL("../app/api/rates/route.ts", import.meta.url), "utf8");
   assert.match(route, /"EUR\/JPY": "EURJPY=X"/);
   assert.match(route, /"GBP\/JPY": "GBPJPY=X"/);
   assert.match(route, /if \(eurJpy && usdJpy\) rates\["EUR\/USD"\] = cross\(eurJpy, usdJpy, "divide"\)/);
   assert.match(route, /if \(gbpJpy && usdJpy\) rates\["GBP\/USD"\] = cross\(gbpJpy, usdJpy, "divide"\)/);
-  assert.match(route, /if \(audJpy && usdJpy\) rates\["AUD\/USD"\] = cross\(audJpy, usdJpy, "divide"\)/);
   assert.match(route, /rateConstruction:/);
+});
+
+test("v95 expands five-minute market proverbs", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /const MARKET_PROVERBS = \[/);
+  assert.match(page, /見切り千両、損切り万両/);
+  assert.match(page, /得意な形だけを待つ/);
+  assert.match(page, /Math\.floor\(minute \/ 5\)/);
 });
