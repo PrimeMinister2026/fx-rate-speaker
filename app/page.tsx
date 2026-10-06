@@ -403,9 +403,17 @@ function marketNoticeSourceTime(timeBasis: MarketNoticeTimeBasis, jstTime: strin
   return formatClockMinute(timeToMinute(jstTime) - offset);
 }
 
+const CLASSIC_MARKET_PROVERBS = MARKET_PROVERBS.slice(0, 6);
+
 function fallbackMarketProverb(timestamp: number) {
   const { weekday, minute } = marketClock(timestamp);
-  return MARKET_PROVERBS[(weekday + Math.floor(minute / 5)) % MARKET_PROVERBS.length];
+  const slot = weekday * 288 + Math.floor(minute / 5);
+  // Keep the original six classics visible even as the monthly proverb list grows.
+  // Every sixth 5-minute slot (about once per 30 minutes) is reserved for a classic.
+  if (slot % 6 === 0) {
+    return CLASSIC_MARKET_PROVERBS[Math.floor(slot / 6) % CLASSIC_MARKET_PROVERBS.length];
+  }
+  return MARKET_PROVERBS[slot % MARKET_PROVERBS.length];
 }
 
 function movementLabel(state?: MovementState) {
