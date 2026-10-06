@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v95<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v96<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -322,11 +322,11 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v95 keeps the app version in one source file", async () => {
+test("v96 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 95/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 96/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -483,4 +483,13 @@ test("v95 expands five-minute market proverbs", async () => {
   assert.match(page, /見切り千両、損切り万両/);
   assert.match(page, /得意な形だけを待つ/);
   assert.match(page, /Math\.floor\(minute \/ 5\)/);
+});
+
+
+test("v96 keeps the original classic proverbs in regular rotation as the list grows", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /const CLASSIC_MARKET_PROVERBS = MARKET_PROVERBS\.slice\(0, 6\)/);
+  assert.match(page, /if \(slot % 6 === 0\)/);
+  assert.match(page, /CLASSIC_MARKET_PROVERBS\[Math\.floor\(slot \/ 6\) % CLASSIC_MARKET_PROVERBS\.length\]/);
+  assert.match(page, /return MARKET_PROVERBS\[slot % MARKET_PROVERBS\.length\]/);
 });
