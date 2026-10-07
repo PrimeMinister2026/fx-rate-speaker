@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v96<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v97<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -74,7 +74,7 @@ test("v60 still defaults to mode 3 and renders clickable 30-point retained-histo
   assert.match(source, /<FlowDirection label="7" direction=\{recentDirection\}/);
   assert.match(source, /const useSyntheticDisplay = rateSource === "OANDA_SYNTHETIC"/);
   assert.match(source, /rate-value \$\{useSyntheticDisplay \? "synthetic"/);
-  assert.match(styles, /grid-template-columns:minmax\(240px,25fr\) minmax\(360px,30fr\) minmax\(450px,45fr\)/);
+  assert.match(styles, /grid-template-columns:minmax\(240px,25fr\) minmax\(500px,38fr\) minmax\(390px,37fr\)/);
   assert.match(styles, /--gold:#f4bd3f/);
   assert.match(styles, /\.spark-recent-path/);
   assert.match(styles, /\.flow-direction \{[^}]*border-radius:3px/);
@@ -227,7 +227,7 @@ test("v67 keeps title, rates and multi-label history readable", async () => {
   assert.match(page, /<h1>FXレート読み上げ<\/h1>/);
   assert.doesNotMatch(page, /<h1><span>FXレート<\/span><span>読み上げ<\/span><\/h1>/);
   assert.match(styles, /\.control-clock \{[^}]*width:100%;[^}]*clamp\(13px,1\.12vw,17px\)/);
-  assert.match(styles, /\.rate-row \{[^}]*minmax\(0,1\.6fr\)[^}]*minmax\(138px,1\.1fr\)/);
+  assert.match(styles, /\.rate-row \{[^}]*minmax\(105px,1\.5fr\)[^}]*minmax\(138px,1fr\)[^}]*minmax\(73px,\.58fr\)/);
   assert.match(styles, /\.rate-value \{[^}]*padding:0 2px 0 0[^}]*clamp\(24px,1\.95vw,28px\)/);
   assert.doesNotMatch(page, /className="rate-status-slot"/);
   assert.match(styles, /@keyframes rapid-pair-pulse \{ 0%,100%[^}]*\} 10%,90%/);
@@ -322,11 +322,11 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v96 keeps the app version in one source file", async () => {
+test("v97 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 96/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 97/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -485,11 +485,26 @@ test("v95 expands five-minute market proverbs", async () => {
   assert.match(page, /Math\.floor\(minute \/ 5\)/);
 });
 
-
 test("v96 keeps the original classic proverbs in regular rotation as the list grows", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(page, /const CLASSIC_MARKET_PROVERBS = MARKET_PROVERBS\.slice\(0, 6\)/);
   assert.match(page, /if \(slot % 6 === 0\)/);
   assert.match(page, /CLASSIC_MARKET_PROVERBS\[Math\.floor\(slot \/ 6\) % CLASSIC_MARKET_PROVERBS\.length\]/);
   assert.match(page, /return MARKET_PROVERBS\[slot % MARKET_PROVERBS\.length\]/);
+});
+
+test("v97 updates displayed rates on every acquired value and adds compact recent rates, ATR and NP", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(page, /function recordOandaPrimary[\s\S]*applyAdoptedRates\(yahooRatesRef\.current\)/);
+  assert.match(page, /const adoptedRates = updateRateSnapshot\(data\.rates/);
+  assert.match(page, /const recentPastRates = history\.slice\(-4, -1\)\.reverse\(\)/);
+  assert.match(page, /function atrLikePips/);
+  assert.match(page, /function normalizedPipValue/);
+  assert.match(page, /100_000 \* 25/);
+  assert.match(page, /className="rate-history-stats"/);
+  assert.match(page, />ATR <strong>/);
+  assert.match(page, />NP <strong>/);
+  assert.match(styles, /\.rate-history-stats \{/);
+  assert.match(styles, /minmax\(500px,38fr\) minmax\(390px,37fr\)/);
 });

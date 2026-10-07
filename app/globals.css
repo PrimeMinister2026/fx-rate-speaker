@@ -9,7 +9,7 @@ button,input,textarea { font:inherit; }
 button { cursor:pointer; }
 button:disabled,input:disabled { cursor:not-allowed; opacity:.55; }
 main { width:min(1460px,calc(100% - 24px)); height:100vh; margin:0 auto; padding:10px 0; }
-.workspace-grid { display:grid; grid-template-columns:minmax(240px,25fr) minmax(360px,30fr) minmax(450px,45fr); gap:9px; height:100%; min-height:0; }
+.workspace-grid { display:grid; grid-template-columns:minmax(240px,25fr) minmax(500px,38fr) minmax(390px,37fr); gap:9px; height:100%; min-height:0; }
 .panel { min-width:0; min-height:0; background:linear-gradient(155deg,#17150f,#0f0f0c); border:1px solid var(--line); border-radius:12px; box-shadow:0 10px 32px #0007; }
 .eyebrow { color:var(--blue); letter-spacing:.16em; font-size:10px; font-weight:800; margin:0 0 2px; }
 h1,h2,p { margin-top:0; }
@@ -111,7 +111,7 @@ button.chosen { border-color:var(--gold); background:#392d0c; color:#fff1b2; box
 
 .rate-column { display:flex; flex-direction:column; padding:8px; overflow:hidden; }
 .rate-list { display:grid; grid-template-rows:repeat(10,minmax(0,1fr)); gap:4px; flex:1; min-height:0; overflow:auto; scrollbar-width:thin; scrollbar-color:#6d571c #11100c; }
-.rate-row { display:grid; grid-template-columns:minmax(70px,.64fr) minmax(0,1.6fr) minmax(138px,1.1fr); align-items:center; gap:6px; padding:5px 8px 5px 6px; border:1px solid #332e1e; border-radius:8px; background:linear-gradient(145deg,#12120e,#0a0a08); min-height:49px; overflow:hidden; cursor:pointer; transition:border-color .15s,background .15s; }
+.rate-row { display:grid; grid-template-columns:minmax(70px,.58fr) minmax(105px,1.5fr) minmax(138px,1fr) minmax(73px,.58fr); align-items:center; gap:5px; padding:5px 6px; border:1px solid #332e1e; border-radius:8px; background:linear-gradient(145deg,#12120e,#0a0a08); min-height:49px; overflow:hidden; cursor:pointer; transition:border-color .15s,background .15s; }
 .rate-row:hover { border-color:#80691f; background:linear-gradient(145deg,#211b0b,#0d0c08); }
 .rate-row.selected { border-color:var(--gold); box-shadow:inset 3px 0 0 var(--gold-bright),0 0 12px #e5a92c19; }
 .rate-row.rapid { border-color:#332e1e; }
@@ -137,6 +137,11 @@ button.chosen { border-color:var(--gold); background:#392d0c; color:#fff1b2; box
 .rate-value.synthetic { color:#9aa0a8; }
 .rate-value.fallback { color:#c6a657; }
 .rate-badges { display:flex; justify-content:flex-end; gap:3px; width:100%; min-width:0; }
+.rate-history-stats { align-self:stretch; display:grid; grid-template-rows:1fr auto; align-items:center; gap:2px; min-width:0; padding-left:5px; border-left:1px solid #3c3520; overflow:hidden; }
+.previous-rates { display:grid; gap:1px; align-content:center; min-width:0; }
+.previous-rates span { color:#b9b39f; text-align:right; font:700 8px/1.05 ui-monospace,"Cascadia Mono",monospace; font-variant-numeric:tabular-nums; letter-spacing:-.025em; white-space:nowrap; }
+.rate-metrics { display:flex; justify-content:flex-end; gap:4px; min-width:0; color:#d5b95f; font:700 7px/1 ui-monospace,"Cascadia Mono",monospace; white-space:nowrap; }
+.rate-metrics strong { color:#fff0b2; font-weight:900; }
 .flow-badge { display:grid; grid-template-columns:repeat(4,22px); gap:2px; white-space:nowrap; }
 .flow-direction { display:grid; place-items:center; width:22px; height:14px; box-sizing:border-box; border:1px solid currentColor; border-radius:3px; font:700 7px/1 ui-monospace,"Cascadia Mono",monospace; }
 .flow-direction.up { color:#65dfa6; background:#102d22; }
@@ -230,7 +235,7 @@ button.chosen { border-color:var(--gold); background:#392d0c; color:#fff1b2; box
 .calendar-empty { margin:8px 0 0; color:var(--muted); font-size:10px; }
 
 @media (max-width:1100px) and (min-width:851px) {
-  .workspace-grid { grid-template-columns:minmax(235px,25fr) minmax(330px,31fr) minmax(390px,44fr); gap:7px; }
+  .workspace-grid { grid-template-columns:minmax(235px,25fr) minmax(475px,39fr) minmax(365px,36fr); gap:7px; }
   main { width:calc(100% - 14px); padding:7px 0; }
   .control-column,.rate-column { padding:9px; }
   .latest-zone,.history-zone { padding:10px 11px; }
@@ -260,3 +265,4 @@ button.chosen { border-color:var(--gold); background:#392d0c; color:#fff1b2; box
 .oanda-status.connected { color:#65dfa6; }
 .oanda-status.checking { color:#d7cda9; }
 .oanda-status.unconfigured,.oanda-status.error,.oanda-status.fallback { color:#c6a657; }
+

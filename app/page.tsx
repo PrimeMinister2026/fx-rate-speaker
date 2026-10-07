@@ -408,8 +408,6 @@ const CLASSIC_MARKET_PROVERBS = MARKET_PROVERBS.slice(0, 6);
 function fallbackMarketProverb(timestamp: number) {
   const { weekday, minute } = marketClock(timestamp);
   const slot = weekday * 288 + Math.floor(minute / 5);
-  // Keep the original six classics visible even as the monthly proverb list grows.
-  // Every sixth 5-minute slot (about once per 30 minutes) is reserved for a classic.
   if (slot % 6 === 0) {
     return CLASSIC_MARKET_PROVERBS[Math.floor(slot / 6) % CLASSIC_MARKET_PROVERBS.length];
   }
@@ -473,6 +471,22 @@ function shortVolatilityLevel(history: Mode2PricePoint[], pipSize: number) {
   if (ratio <= 1.35) return 3;
   if (ratio <= 2) return 4;
   return 5;
+}
+
+function atrLikePips(history: Mode2PricePoint[], pipSize: number) {
+  const window = history.slice(-15);
+  if (window.length < 2) return null;
+  const moves = window.slice(1).map((point, index) =>
+    Math.abs(point.price - window[index].price) / pipSize,
+  ).filter((value) => Number.isFinite(value));
+  if (!moves.length) return null;
+  return moves.reduce((sum, value) => sum + value, 0) / moves.length;
+}
+
+function normalizedPipValue(price: number, pipSize: number) {
+  if (!Number.isFinite(price) || price <= 0) return null;
+  const notionalYen = 100_000 * 25;
+  return notionalYen * pipSize / price;
 }
 
 function flowCommentary(name: string, flow: FlowSnapshot, movement: MovementState, event?: "high" | "low") {
@@ -2677,7 +2691,11 @@ export default function Home() {
               const recentDirection = visualDirection(recentHistory, midDirection);
               const movement = displayState?.movement ?? "NORMAL";
               const rapid = movement === "RAPID_UP" || movement === "RAPID_DOWN";
-              const volatility = shortVolatilityLevel(history, pair.yen ? 0.01 : 0.0001);
+              const pipSize = pair.yen ? 0.01 : 0.0001;
+              const volatility = shortVolatilityLevel(history, pipSize);
+              const recentPastRates = history.slice(-4, -1).reverse();
+              const atrPips = atrLikePips(history, pipSize);
+              const npYen = visibleRate ? normalizedPipValue(visibleRate.price, pipSize) : null;
               return (
                 <article className={`rate-row state-${movement.toLowerCase()} ${selected.includes(pair.code) ? "selected" : ""} ${displayFailed ? "error" : ""} ${rapid ? "rapid" : ""}`} key={pair.code}
                   onClick={() => togglePair(pair.code)} aria-pressed={selected.includes(pair.code)}
@@ -2711,6 +2729,17 @@ export default function Home() {
                         <FlowDirection label="15" direction={midDirection} history={midHistory} requiredPoints={SPARKLINE_MID_WINDOW} />
                         <FlowDirection label="7" direction={recentDirection} history={recentHistory} requiredPoints={SPARKLINE_RECENT_WINDOW} />
                       </span>
+                    </div>
+                  </div>
+                  <div className="rate-history-stats" aria-label={`${pair.code} 直近3回・ATR・NP`}>
+                    <div className="previous-rates" title="直近3回の10秒固定レート">
+                      {[0, 1, 2].map((index) => (
+                        <span key={index}>{recentPastRates[index] ? displayPrice(recentPastRates[index].price, pair.yen) : "---"}</span>
+                      ))}
+                    </div>
+                    <div className="rate-metrics">
+                      <span title="直近14区間の平均絶対変化幅">ATR <strong>{atrPips === null ? "--" : atrPips.toFixed(1)}p</strong></span>
+                      <span title="証拠金10万円・レバレッジ25倍時の1pip円額">NP <strong>{npYen === null ? "--" : `¥${Math.round(npYen)}`}</strong></span>
                     </div>
                   </div>
                 </article>
