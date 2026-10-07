@@ -2725,14 +2725,14 @@ export default function Home() {
                     </div>
                   </div>
                   <div className="rate-history-stats" aria-label={`${pair.code} 直近3回・NP`}>
-                    <div className="previous-rates" title="直近3回の10秒固定レート">
-                      {[0, 1, 2].map((index) => (
-                        <span key={index}>{recentPastRates[index] ? lastThreeRateDigits(recentPastRates[index].price, pair.yen) : "---"}</span>
-                      ))}
-                    </div>
-                    <div className="np-value" title="証拠金10万円・レバレッジ25倍時の1pip円額">
+                    {[0, 1, 2].map((index) => (
+                      <span className="history-digit" key={index} title={`直近${index + 1}回前の10秒固定レート`}>
+                        {recentPastRates[index] ? lastThreeRateDigits(recentPastRates[index].price, pair.yen) : "---"}
+                      </span>
+                    ))}
+                    <span className="np-value" title="証拠金10万円・レバレッジ25倍時の1pip円額">
                       {npYen === null ? "--" : Math.round(npYen)}
-                    </div>
+                    </span>
                   </div>
                 </article>
               );

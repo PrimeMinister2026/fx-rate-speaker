@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v98<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v99<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -322,11 +322,11 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v98 keeps the app version in one source file", async () => {
+test("v99 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 98/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 99/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -514,8 +514,16 @@ test("v98 enlarges the final three digits and keeps only the color-coded NP valu
   assert.doesNotMatch(page, /function atrLikePips/);
   assert.doesNotMatch(page, />ATR <strong>/);
   assert.doesNotMatch(page, />NP <strong>/);
-  assert.match(styles, /\.previous-rates span \{[^}]*font:800 11px\/1/);
-  assert.match(styles, /\.np-value \{[^}]*#72d7ff[^}]*font:900 11px\/1/);
+  assert.match(styles, /\.history-digit \{[^}]*color:#e1dbc9/);
+  assert.match(styles, /\.np-value \{[^}]*color:#72d7ff/);
   assert.match(styles, /\.rate-value-line \{[^}]*gap:2px/);
   assert.match(styles, /\.movement \{[^}]*font-size:12px/);
+});
+
+test("v99 arranges the three previous rates and NP in a clipped two-by-two grid", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(page, /className="history-digit"/);
+  assert.match(styles, /\.rate-history-stats \{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)[^}]*grid-template-rows:repeat\(2,minmax\(0,1fr\)\)[^}]*overflow:hidden/);
+  assert.match(styles, /\.history-digit,\.np-value \{[^}]*max-width:100%[^}]*font:900 14px\/1[^}]*overflow:hidden/);
 });
