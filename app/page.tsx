@@ -483,6 +483,13 @@ function lastThreeRateDigits(price: number, yen: boolean) {
   return displayPrice(price, yen).replace(/\D/g, "").slice(-3).padStart(3, "0");
 }
 
+function previousGraphGridRates(history: Mode2PricePoint[], now: number) {
+  const gridSeconds = GRAPH_RATE_POLL_MS / 1000;
+  const currentGridTimestamp = Math.floor(now / GRAPH_RATE_POLL_MS) * gridSeconds;
+  const pointsByTimestamp = new Map(history.map((point) => [point.timestamp, point]));
+  return [1, 2, 3].map((stepsBack) => pointsByTimestamp.get(currentGridTimestamp - gridSeconds * stepsBack));
+}
+
 function flowCommentary(name: string, flow: FlowSnapshot, movement: MovementState, event?: "high" | "low") {
   const { overall, short, recent } = flow;
   const rapidUp = movement === "RAPID_UP";
@@ -2687,7 +2694,7 @@ export default function Home() {
               const rapid = movement === "RAPID_UP" || movement === "RAPID_DOWN";
               const pipSize = pair.yen ? 0.01 : 0.0001;
               const volatility = shortVolatilityLevel(history, pipSize);
-              const recentPastRates = history.slice(-4, -1).reverse();
+              const recentPastRates = previousGraphGridRates(history, currentTime);
               const npYen = visibleRate ? normalizedPipValue(visibleRate.price, pipSize) : null;
               return (
                 <article className={`rate-row state-${movement.toLowerCase()} ${selected.includes(pair.code) ? "selected" : ""} ${displayFailed ? "error" : ""} ${rapid ? "rapid" : ""}`} key={pair.code}

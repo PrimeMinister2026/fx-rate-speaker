@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v99<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v100<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -322,11 +322,11 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v99 keeps the app version in one source file", async () => {
+test("v100 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 99/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 100/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -498,7 +498,7 @@ test("v97 updates displayed rates on every acquired value and adds compact recen
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(page, /function recordOandaPrimary[\s\S]*applyAdoptedRates\(yahooRatesRef\.current\)/);
   assert.match(page, /const adoptedRates = updateRateSnapshot\(data\.rates/);
-  assert.match(page, /const recentPastRates = history\.slice\(-4, -1\)\.reverse\(\)/);
+  assert.match(page, /const recentPastRates = previousGraphGridRates\(history, currentTime\)/);
   assert.match(page, /function normalizedPipValue/);
   assert.match(page, /100_000 \* 25/);
   assert.match(page, /className="rate-history-stats"/);
@@ -526,4 +526,12 @@ test("v99 arranges the three previous rates and NP in a clipped two-by-two grid"
   assert.match(page, /className="history-digit"/);
   assert.match(styles, /\.rate-history-stats \{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)[^}]*grid-template-rows:repeat\(2,minmax\(0,1fr\)\)[^}]*overflow:hidden/);
   assert.match(styles, /\.history-digit,\.np-value \{[^}]*max-width:100%[^}]*font:900 14px\/1[^}]*overflow:hidden/);
+});
+
+test("v100 selects the three exact completed ten-second grid slots", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /function previousGraphGridRates/);
+  assert.match(page, /currentGridTimestamp = Math\.floor\(now \/ GRAPH_RATE_POLL_MS\) \* gridSeconds/);
+  assert.match(page, /\[1, 2, 3\]\.map\(\(stepsBack\) => pointsByTimestamp\.get\(currentGridTimestamp - gridSeconds \* stepsBack\)\)/);
+  assert.doesNotMatch(page, /history\.slice\(-4, -1\)\.reverse\(\)/);
 });
