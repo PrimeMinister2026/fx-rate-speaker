@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v97<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v98<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -262,7 +262,7 @@ test("v70 uses trend-aware strength persistence and keeps status immediately lef
   assert.match(styles, /\.rate-value-line \{[^}]*display:flex[^}]*align-items:baseline[^}]*justify-content:flex-end/);
   assert.match(styles, /\.rate-value \{[^}]*clamp\(24px,1\.95vw,28px\)/);
   assert.match(styles, /\.synthetic-badge \{[^}]*border:0[^}]*background:transparent[^}]*font-size:7px/);
-  assert.match(styles, /\.movement \{[^}]*font-size:14px/);
+  assert.match(styles, /\.movement \{[^}]*font-size:12px/);
 });
 
 test("v73 uses strong red clock danger windows at 50:00-05:00 and 20:00-35:00", async () => {
@@ -281,7 +281,7 @@ test("v72 inline status intent is preserved by the current rate layout", async (
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(page, /className="rate-value-line"[\s\S]*movementSymbol\(movement\)[\s\S]*className=\{`rate-value/);
   assert.doesNotMatch(page, /className="rate-status-slot"/);
-  assert.match(styles, /\.rate-value-line \{[^}]*display:flex[^}]*align-items:baseline[^}]*justify-content:flex-end[^}]*gap:5px/);
+  assert.match(styles, /\.rate-value-line \{[^}]*display:flex[^}]*align-items:baseline[^}]*justify-content:flex-end[^}]*gap:2px/);
   assert.match(styles, /\.rate-value \{[^}]*flex:0 0 auto[^}]*width:auto/);
   assert.match(styles, /\.synthetic-badge \{[^}]*border:0[^}]*font-size:7px/);
 });
@@ -322,11 +322,11 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v97 keeps the app version in one source file", async () => {
+test("v98 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 97/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 98/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -493,18 +493,29 @@ test("v96 keeps the original classic proverbs in regular rotation as the list gr
   assert.match(page, /return MARKET_PROVERBS\[slot % MARKET_PROVERBS\.length\]/);
 });
 
-test("v97 updates displayed rates on every acquired value and adds compact recent rates, ATR and NP", async () => {
+test("v97 updates displayed rates on every acquired value and adds compact recent-rate metrics", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(page, /function recordOandaPrimary[\s\S]*applyAdoptedRates\(yahooRatesRef\.current\)/);
   assert.match(page, /const adoptedRates = updateRateSnapshot\(data\.rates/);
   assert.match(page, /const recentPastRates = history\.slice\(-4, -1\)\.reverse\(\)/);
-  assert.match(page, /function atrLikePips/);
   assert.match(page, /function normalizedPipValue/);
   assert.match(page, /100_000 \* 25/);
   assert.match(page, /className="rate-history-stats"/);
-  assert.match(page, />ATR <strong>/);
-  assert.match(page, />NP <strong>/);
   assert.match(styles, /\.rate-history-stats \{/);
   assert.match(styles, /minmax\(500px,38fr\) minmax\(390px,37fr\)/);
+});
+
+test("v98 enlarges the final three digits and keeps only the color-coded NP value", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(page, /function lastThreeRateDigits/);
+  assert.match(page, /className="np-value"/);
+  assert.doesNotMatch(page, /function atrLikePips/);
+  assert.doesNotMatch(page, />ATR <strong>/);
+  assert.doesNotMatch(page, />NP <strong>/);
+  assert.match(styles, /\.previous-rates span \{[^}]*font:800 11px\/1/);
+  assert.match(styles, /\.np-value \{[^}]*#72d7ff[^}]*font:900 11px\/1/);
+  assert.match(styles, /\.rate-value-line \{[^}]*gap:2px/);
+  assert.match(styles, /\.movement \{[^}]*font-size:12px/);
 });

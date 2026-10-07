@@ -473,20 +473,14 @@ function shortVolatilityLevel(history: Mode2PricePoint[], pipSize: number) {
   return 5;
 }
 
-function atrLikePips(history: Mode2PricePoint[], pipSize: number) {
-  const window = history.slice(-15);
-  if (window.length < 2) return null;
-  const moves = window.slice(1).map((point, index) =>
-    Math.abs(point.price - window[index].price) / pipSize,
-  ).filter((value) => Number.isFinite(value));
-  if (!moves.length) return null;
-  return moves.reduce((sum, value) => sum + value, 0) / moves.length;
-}
-
 function normalizedPipValue(price: number, pipSize: number) {
   if (!Number.isFinite(price) || price <= 0) return null;
   const notionalYen = 100_000 * 25;
   return notionalYen * pipSize / price;
+}
+
+function lastThreeRateDigits(price: number, yen: boolean) {
+  return displayPrice(price, yen).replace(/\D/g, "").slice(-3).padStart(3, "0");
 }
 
 function flowCommentary(name: string, flow: FlowSnapshot, movement: MovementState, event?: "high" | "low") {
@@ -2694,7 +2688,6 @@ export default function Home() {
               const pipSize = pair.yen ? 0.01 : 0.0001;
               const volatility = shortVolatilityLevel(history, pipSize);
               const recentPastRates = history.slice(-4, -1).reverse();
-              const atrPips = atrLikePips(history, pipSize);
               const npYen = visibleRate ? normalizedPipValue(visibleRate.price, pipSize) : null;
               return (
                 <article className={`rate-row state-${movement.toLowerCase()} ${selected.includes(pair.code) ? "selected" : ""} ${displayFailed ? "error" : ""} ${rapid ? "rapid" : ""}`} key={pair.code}
@@ -2731,15 +2724,14 @@ export default function Home() {
                       </span>
                     </div>
                   </div>
-                  <div className="rate-history-stats" aria-label={`${pair.code} 直近3回・ATR・NP`}>
+                  <div className="rate-history-stats" aria-label={`${pair.code} 直近3回・NP`}>
                     <div className="previous-rates" title="直近3回の10秒固定レート">
                       {[0, 1, 2].map((index) => (
-                        <span key={index}>{recentPastRates[index] ? displayPrice(recentPastRates[index].price, pair.yen) : "---"}</span>
+                        <span key={index}>{recentPastRates[index] ? lastThreeRateDigits(recentPastRates[index].price, pair.yen) : "---"}</span>
                       ))}
                     </div>
-                    <div className="rate-metrics">
-                      <span title="直近14区間の平均絶対変化幅">ATR <strong>{atrPips === null ? "--" : atrPips.toFixed(1)}p</strong></span>
-                      <span title="証拠金10万円・レバレッジ25倍時の1pip円額">NP <strong>{npYen === null ? "--" : `¥${Math.round(npYen)}`}</strong></span>
+                    <div className="np-value" title="証拠金10万円・レバレッジ25倍時の1pip円額">
+                      {npYen === null ? "--" : Math.round(npYen)}
                     </div>
                   </div>
                 </article>

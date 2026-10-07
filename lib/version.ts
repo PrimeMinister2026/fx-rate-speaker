@@ -1,3 +1,3 @@
-export const FX_RATE_SPEAKER_VERSION = 97 as const;
+export const FX_RATE_SPEAKER_VERSION = 98 as const;
 export const FX_RATE_SPEAKER_VERSION_LABEL = `v${FX_RATE_SPEAKER_VERSION}`;
 export const FX_RATE_SPEAKER_TITLE = `FX Rate Speaker ${FX_RATE_SPEAKER_VERSION_LABEL}`;
