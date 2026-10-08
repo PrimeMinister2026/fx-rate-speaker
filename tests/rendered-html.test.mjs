@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v100<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v101<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -322,17 +322,29 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v100 keeps the app version in one source file", async () => {
+test("v101 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 100/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 101/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(layout, /FX_RATE_SPEAKER_TITLE/);
   assert.doesNotMatch(page, /<strong>v85<\/strong>/);
   assert.doesNotMatch(layout, /FX Rate Speaker v85/);
+});
+
+test("v101 resets all short-term analysis history when a new run starts", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /function resetSessionAnalysisHistory\(\)/);
+  assert.match(page, /sparklineHistoriesRef\.current = \{\};/);
+  assert.match(page, /setSparklineHistories\(\{\}\);/);
+  assert.match(page, /setRateDisplayStates\(\{\}\);/);
+  assert.match(page, /previousStrengthScoresRef\.current = \{\};/);
+  assert.match(page, /strengthTrendHistoryRef\.current = \{\};/);
+  assert.match(page, /setStrengthDisplayScores\(\{\}\);/);
+  assert.match(page, /async function start\(\)[\s\S]*resetSessionAnalysisHistory\(\);[\s\S]*graphStart/);
 });
 
 test("v87 rotates proverbs and supports DST-aware scheduled market notices", async () => {

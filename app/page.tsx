@@ -1659,6 +1659,27 @@ export default function Home() {
     setRemainingSeconds(autoStopped ? 0 : AUTO_STOP_SECONDS);
   }
 
+  function resetSessionAnalysisHistory() {
+    rateHistoryRef.current = {};
+    audioPriceHistoryRef.current = {};
+    sparklineHistoriesRef.current = {};
+    previousAnalysisRatesRef.current = {};
+    movementTrackerRef.current = {};
+    volatilityRegimeRef.current = {};
+    latestAcceptedRef.current = {};
+    latestMarketStatesRef.current = [];
+    rapidDisplayRef.current = {};
+    lastGraphGridRef.current = null;
+    previousStrengthScoresRef.current = {};
+    strengthTrendHistoryRef.current = {};
+    commentaryCooldownRef.current.clear();
+    pendingCommentaryRef.current = [];
+    setSparklineHistories({});
+    setRateDisplayStates({});
+    setStrengthDisplayScores({});
+    setCommentaryHistory([]);
+  }
+
   function commentaryCandidate(
     code: string,
     name: string,
@@ -2372,19 +2393,9 @@ export default function Home() {
     }
     const runId = runIdRef.current + 1;
     runIdRef.current = runId;
-    rateHistoryRef.current = {};
-    audioPriceHistoryRef.current = {};
-    previousAnalysisRatesRef.current = {};
-    movementTrackerRef.current = {};
-    commentaryCooldownRef.current.clear();
-    volatilityRegimeRef.current = {};
-    pendingCommentaryRef.current = [];
-    latestAcceptedRef.current = {};
-    lastGraphGridRef.current = null;
-    rapidDisplayRef.current = {};
+    resetSessionAnalysisHistory();
     calendarAlertedRef.current.clear();
     lastSummaryAtRef.current = Date.now();
-    setCommentaryHistory([]);
     runningRef.current = true;
     setRunning(true);
     setStatus("開始");
