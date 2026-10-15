@@ -65,7 +65,6 @@ const HISTORY_RAPID_TTL_MS = 30 * 60 * 1000;
 const HISTORY_IMPORTANT_TTL_MS = 20 * 60 * 1000;
 const HISTORY_NORMAL_TTL_MS = 10 * 60 * 1000;
 const COMMENTARY_COOLDOWN_MS = 3 * 60 * 1000;
-const RAPID_COMMENTARY_COOLDOWN_MS = 90 * 1000;
 const BREAKOUT_COOLDOWN_MS = 4 * 60 * 1000;
 const SUMMARY_INTERVAL_MS = 5 * 60 * 1000;
 const SPARKLINE_DISPLAY_POINT_COUNT = 30;
@@ -1295,7 +1294,7 @@ export default function Home() {
         rapidMovePips: null,
       };
     }
-    const transition = transitionMovement(existingTracker, analysis.candidate);
+    const transition = transitionMovement(existingTracker, analysis.candidate, Date.now(), analysis.rapidIntensity);
     movementTrackerRef.current[code] = transition.tracker;
     console.debug("[FX Rate Speaker movement]", {
       pair: code,
@@ -1306,6 +1305,8 @@ export default function Home() {
       net10: analysis.long
         ? `${analysis.long.netPips >= 0 ? "+" : ""}${analysis.long.netPips.toFixed(1)} pips`
         : "履歴不足",
+      absolute5: `${analysis.short.absolutePips.toFixed(1)} pips`,
+      absolute10: `${analysis.long.absolutePips.toFixed(1)} pips`,
       recentMove: `${analysis.thresholds.recentMove.toFixed(2)} pips`,
       recentRange: `${analysis.thresholds.recentRange.toFixed(2)} pips`,
       trendThreshold: `${analysis.thresholds.trend.toFixed(2)} pips`,
@@ -1695,11 +1696,11 @@ export default function Home() {
       return {
         pair: code,
         kind: "急変",
-        text: `急変です。${name}、直近約${(movement.rapidMovePips ?? 0).toFixed(1)}pips動いています。 ${flowCommentary(name, flow, movement.state)}`,
+        text: `${name}、${movement.notification === "RAPID_UP" ? "急騰。" : "急落。"}`,
         level: "rapid",
         eventKey: movement.notification,
         priority: 100,
-        cooldownMs: RAPID_COMMENTARY_COOLDOWN_MS,
+        cooldownMs: 0,
       };
     }
     const current = history.at(-1)!.price;
@@ -1735,7 +1736,7 @@ export default function Home() {
       return {
         pair: code,
         kind: rising ? "上昇傾向" : "下落傾向",
-        text: flowCommentary(name, flow, movement.state),
+        text: `${name}、${rising ? "上昇傾向。" : "下落傾向。"}`,
         level: "important",
         eventKey: movement.notification,
         priority: 60,

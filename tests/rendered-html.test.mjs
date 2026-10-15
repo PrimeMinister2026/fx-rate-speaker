@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v101<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v102<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -322,11 +322,11 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v101 keeps the app version in one source file", async () => {
+test("v102 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 101/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 102/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -410,18 +410,21 @@ test("v81 allows pair selection changes while reading without restarting the wor
   assert.match(styles, /\.rate-row:hover \{/);
 });
 
-test("v80 normalizes rapid alerts to each pair's own recent volatility range", async () => {
+test("v102 normalizes rapid alerts to each pair's robust usual movement", async () => {
   const movement = await readFile(new URL("../lib/movement.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(movement, /RAPID_DIRECTION_RATIO = 0\.7/);
-  assert.match(movement, /RAPID_SHORT_RANGE_RATIO = 0\.35/);
-  assert.match(movement, /RAPID_LONG_RANGE_RATIO = 0\.60/);
-  assert.match(movement, /const recentRange = \(Math\.max\(\.\.\.prices\) - Math\.min\(\.\.\.prices\)\) \/ pipSize/);
-  assert.match(movement, /recentRange \* RAPID_SHORT_RANGE_RATIO/);
-  assert.match(movement, /recentRange \* RAPID_LONG_RANGE_RATIO/);
-  assert.doesNotMatch(movement, /RAPID_SHORT_MIN_PIPS|RAPID_LONG_MIN_PIPS/);
+  assert.match(movement, /VOLATILITY_WINDOW = 60/);
+  assert.match(movement, /MIN_VOLATILITY_SAMPLES = 30/);
+  assert.match(movement, /RAPID_SHORT_NORMAL_MULTIPLIER = 2\.5/);
+  assert.match(movement, /RAPID_LONG_NORMAL_MULTIPLIER = 2\.0/);
+  assert.match(movement, /recentMove \* RAPID_SHORT_WINDOW \* RAPID_SHORT_NORMAL_MULTIPLIER/);
+  assert.match(movement, /recentMove \* RAPID_LONG_WINDOW \* RAPID_LONG_NORMAL_MULTIPLIER/);
+  assert.match(movement, /median\(moves\)/);
+  assert.doesNotMatch(movement, /RAPID_SHORT_MIN_PIPS|RAPID_LONG_MIN_PIPS|RAPID_SHORT_RANGE_RATIO|RAPID_LONG_RANGE_RATIO/);
   assert.match(page, /recentRange:/);
-  assert.match(page, /直近約\$\{\(movement\.rapidMovePips \?\? 0\)\.toFixed\(1\)\}pips動いています/);
+  assert.match(page, /movement\.notification === "RAPID_UP" \? "急騰。" : "急落。"/);
+  assert.match(page, /rising \? "上昇傾向。" : "下落傾向。"/);
 });
 
 test("v94 keeps OANDA synthetic gray while Yahoo uses the normal rate color", async () => {
