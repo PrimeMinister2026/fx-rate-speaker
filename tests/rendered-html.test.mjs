@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v102<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v103<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -51,11 +51,7 @@ test("v67 keeps modes 2, 3 and 4 NEWS audio", async () => {
   assert.match(source, /audioModeRef\.current !== "mode4"/);
   assert.match(source, /NEWS_POLL_INTERVAL_MS = 60 \* 1000/);
   assert.match(source, /item\.level !== "NEWS_L1"/);
-  assert.match(source, /state === "UP_TREND"\) return "↑"/);
-  assert.match(source, /state === "DOWN_TREND"\) return "↓"/);
-  assert.match(source, /state === "RAPID_UP"\) return "↑↑"/);
-  assert.match(source, /state === "RAPID_DOWN"\) return "↓↓"/);
-  assert.match(source, /if \(state === "RAPID_DOWN"\) return "↓↓";\s+return "";/);
+  assert.doesNotMatch(source, /function movementSymbol|function movementLabel/);
 });
 
 test("v60 still defaults to mode 3 and renders clickable 30-point retained-history sparklines", async () => {
@@ -86,7 +82,7 @@ test("v60 still defaults to mode 3 and renders clickable 30-point retained-histo
   assert.doesNotMatch(source, /10ペア レート|カードをクリックして選択/);
   assert.doesNotMatch(source, /spark-direction-marker|spark-last/);
   assert.doesNotMatch(styles, /spark-direction-marker|spark-last/);
-  assert.match(source, /movement !== "NORMAL"/);
+  assert.doesNotMatch(source, /movement !== "NORMAL"/);
   assert.doesNotMatch(source, /aria-label="読み上げ速度"/);
   assert.match(source, /BREAKOUT_LOOKBACK_SECONDS = 15 \* 60/);
   assert.match(source, /BREAKOUT_RANGE_RATIO = 0\.04/);
@@ -176,8 +172,7 @@ test("v67 records only aligned ten-second graph points and keeps rapid display s
 test("v67 separates card regions, defers incomplete directions and prioritizes visible history", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(page, /RAPID_UP"\) return "↑↑"/);
-  assert.match(page, /RAPID_DOWN"\) return "↓↓"/);
+  assert.doesNotMatch(page, /RAPID_UP"\) return "↑↑"|RAPID_DOWN"\) return "↓↓"/);
   assert.match(page, /requiredPoints=\{SPARKLINE_LONG_WINDOW\}/);
   assert.match(page, /flow-direction pending/);
   assert.match(page, /selectVisibleHistory\(commentaryHistory, currentTime\)/);
@@ -227,10 +222,11 @@ test("v67 keeps title, rates and multi-label history readable", async () => {
   assert.match(page, /<h1>FXレート読み上げ<\/h1>/);
   assert.doesNotMatch(page, /<h1><span>FXレート<\/span><span>読み上げ<\/span><\/h1>/);
   assert.match(styles, /\.control-clock \{[^}]*width:100%;[^}]*clamp\(13px,1\.12vw,17px\)/);
-  assert.match(styles, /\.rate-row \{[^}]*minmax\(105px,1\.5fr\)[^}]*minmax\(138px,1fr\)[^}]*minmax\(73px,\.58fr\)/);
+  assert.match(styles, /\.rate-row \{[^}]*minmax\(122px,1\.72fr\)[^}]*minmax\(126px,\.92fr\)[^}]*minmax\(73px,\.58fr\)/);
   assert.match(styles, /\.rate-value \{[^}]*padding:0 2px 0 0[^}]*clamp\(24px,1\.95vw,28px\)/);
   assert.doesNotMatch(page, /className="rate-status-slot"/);
-  assert.match(styles, /@keyframes rapid-pair-pulse \{ 0%,100%[^}]*\} 10%,90%/);
+  assert.match(styles, /@keyframes rapid-up-panel-flash/);
+  assert.match(styles, /@keyframes rapid-down-panel-flash/);
   assert.match(page, /className="history-meta"[\s\S]*className="feed-text"/);
   assert.match(styles, /\.history-row \{[^}]*grid-template-columns:minmax\(0,1fr\)/);
   assert.match(styles, /\.history-meta \{[^}]*grid-template-columns:48px minmax\(0,1fr\) 72px/);
@@ -258,11 +254,11 @@ test("v70 uses trend-aware strength persistence and keeps status immediately lef
   assert.match(page, /consecutive/);
   assert.match(page, /strengthTrendHistoryRef/);
   assert.match(page, /displayPairScores=\{strengthDisplayScores\[windowSize\]/);
-  assert.match(page, /className="rate-value-line"[\s\S]*movementSymbol\(movement\)[\s\S]*className=\{`rate-value/);
+  assert.doesNotMatch(page, /movementSymbol\(movement\)|className="movement/);
   assert.match(styles, /\.rate-value-line \{[^}]*display:flex[^}]*align-items:baseline[^}]*justify-content:flex-end/);
   assert.match(styles, /\.rate-value \{[^}]*clamp\(24px,1\.95vw,28px\)/);
   assert.match(styles, /\.synthetic-badge \{[^}]*border:0[^}]*background:transparent[^}]*font-size:7px/);
-  assert.match(styles, /\.movement \{[^}]*font-size:12px/);
+  assert.doesNotMatch(styles, /\.movement \{/);
 });
 
 test("v73 uses strong red clock danger windows at 50:00-05:00 and 20:00-35:00", async () => {
@@ -279,7 +275,7 @@ test("v73 uses strong red clock danger windows at 50:00-05:00 and 20:00-35:00", 
 test("v72 inline status intent is preserved by the current rate layout", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(page, /className="rate-value-line"[\s\S]*movementSymbol\(movement\)[\s\S]*className=\{`rate-value/);
+  assert.doesNotMatch(page, /movementSymbol\(movement\)|className="movement/);
   assert.doesNotMatch(page, /className="rate-status-slot"/);
   assert.match(styles, /\.rate-value-line \{[^}]*display:flex[^}]*align-items:baseline[^}]*justify-content:flex-end[^}]*gap:2px/);
   assert.match(styles, /\.rate-value \{[^}]*flex:0 0 auto[^}]*width:auto/);
@@ -322,11 +318,11 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v102 keeps the app version in one source file", async () => {
+test("v103 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 102/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 103/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -532,7 +528,7 @@ test("v98 enlarges the final three digits and keeps only the color-coded NP valu
   assert.match(styles, /\.history-digit \{[^}]*color:#e1dbc9/);
   assert.match(styles, /\.np-value \{[^}]*color:#72d7ff/);
   assert.match(styles, /\.rate-value-line \{[^}]*gap:2px/);
-  assert.match(styles, /\.movement \{[^}]*font-size:12px/);
+  assert.doesNotMatch(styles, /\.movement \{/);
 });
 
 test("v99 arranges the three previous rates and NP in a clipped two-by-two grid", async () => {
@@ -549,4 +545,26 @@ test("v100 selects the three exact completed ten-second grid slots", async () =>
   assert.match(page, /currentGridTimestamp = Math\.floor\(now \/ GRAPH_RATE_POLL_MS\) \* gridSeconds/);
   assert.match(page, /\[1, 2, 3\]\.map\(\(stepsBack\) => pointsByTimestamp\.get\(currentGridTimestamp - gridSeconds \* stepsBack\)\)/);
   assert.doesNotMatch(page, /history\.slice\(-4, -1\)\.reverse\(\)/);
+});
+
+test("v103 uses currency pills and background-only movement states", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(page, /USD: "#A855F7"/);
+  assert.match(page, /JPY: "#FF4444"/);
+  assert.match(page, /EUR: "#3B82F6"/);
+  assert.match(page, /GBP: "#22C55E"/);
+  assert.match(page, /AUD: "#F59E0B"/);
+  assert.match(page, /function PairPill/);
+  assert.match(page, /<PairPill code=\{pair\.code\} \/>/);
+  assert.match(page, /className="strength-currency-pill"/);
+  assert.doesNotMatch(page, /function movementSymbol|className="movement/);
+  assert.doesNotMatch(styles, /\.movement \{/);
+  assert.match(styles, /\.sparkline \{[^}]*height:38px/);
+  assert.match(styles, /\.rate-row\.state-up_trend \{[^}]*background:/);
+  assert.match(styles, /\.rate-row\.state-down_trend \{[^}]*background:/);
+  assert.match(styles, /\.rate-row\.state-rapid_up \{ animation:rapid-up-panel-flash/);
+  assert.match(styles, /\.rate-row\.state-rapid_down \{ animation:rapid-down-panel-flash/);
+  assert.match(styles, /\.rate-row\.volatility-high:not\(\.rapid\) \{ animation:volatility-panel-flash/);
+  assert.match(styles, /@media \(prefers-reduced-motion:reduce\)/);
 });

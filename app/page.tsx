@@ -57,6 +57,14 @@ const PAIRS = [
   { code: "GBP/AUD", name: "ポンドオージー", yen: false },
 ] as const;
 
+const CURRENCY_COLORS: Record<CurrencyCode, string> = {
+  USD: "#A855F7",
+  JPY: "#FF4444",
+  EUR: "#3B82F6",
+  GBP: "#22C55E",
+  AUD: "#F59E0B",
+};
+
 const AUTO_STOP_SECONDS = 3 * 60 * 60;
 const DEFAULT_SPEECH_RATE = 1.5;
 const COMMENTARY_VISIBLE_LIMIT = 8;
@@ -413,20 +421,13 @@ function fallbackMarketProverb(timestamp: number) {
   return MARKET_PROVERBS[slot % MARKET_PROVERBS.length];
 }
 
-function movementLabel(state?: MovementState) {
-  if (state === "UP_TREND") return "上昇傾向";
-  if (state === "DOWN_TREND") return "下落傾向";
-  if (state === "RAPID_UP") return "急上昇";
-  if (state === "RAPID_DOWN") return "急下落";
-  return "通常";
-}
-
-function movementSymbol(state?: MovementState) {
-  if (state === "UP_TREND") return "↑";
-  if (state === "DOWN_TREND") return "↓";
-  if (state === "RAPID_UP") return "↑↑";
-  if (state === "RAPID_DOWN") return "↓↓";
-  return "";
+function PairPill({ code }: { code: string }) {
+  const [base, quote] = code.split("/") as [CurrencyCode, CurrencyCode];
+  return <span className="pair-pill" aria-label={code}>
+    <span style={{ backgroundColor: CURRENCY_COLORS[base] }}>{base}</span>
+    <i aria-hidden="true">/</i>
+    <span style={{ backgroundColor: CURRENCY_COLORS[quote] }}>{quote}</span>
+  </span>;
 }
 
 function directionLabel(direction?: Direction) {
@@ -680,7 +681,12 @@ function StrengthPentagon({ label, result, displayPairScores }: {
       })}
       {STRENGTH_VERTEX_ORDER.map((currency, index) => {
         const angle = -Math.PI / 2 + index * (Math.PI * 2 / 5);
-        return <text key={currency} x={centerX + Math.cos(angle) * 50} y={centerY + Math.sin(angle) * 50 + 3}>{currency}</text>;
+        const x = centerX + Math.cos(angle) * 50;
+        const y = centerY + Math.sin(angle) * 50;
+        return <g className="strength-currency-pill" key={currency} aria-label={currency}>
+          <rect x={x - 11} y={y - 5} width="22" height="10" rx="4" fill={CURRENCY_COLORS[currency]} />
+          <text x={x} y={y + 2.4}>{currency}</text>
+        </g>;
       })}
       {!result.ready && <text className="pentagon-wait" x="60" y="58">WAIT</text>}
     </svg>
@@ -2709,13 +2715,13 @@ export default function Home() {
               const recentPastRates = previousGraphGridRates(history, currentTime);
               const npYen = visibleRate ? normalizedPipValue(visibleRate.price, pipSize) : null;
               return (
-                <article className={`rate-row state-${movement.toLowerCase()} ${selected.includes(pair.code) ? "selected" : ""} ${displayFailed ? "error" : ""} ${rapid ? "rapid" : ""}`} key={pair.code}
+                <article className={`rate-row state-${movement.toLowerCase()} volatility-v${volatility} ${volatility >= 4 ? "volatility-high" : ""} ${selected.includes(pair.code) ? "selected" : ""} ${displayFailed ? "error" : ""} ${rapid ? "rapid" : ""}`} key={pair.code}
                   onClick={() => togglePair(pair.code)} aria-pressed={selected.includes(pair.code)}
                   role="button" tabIndex={0}
                   onKeyDown={(event) => { if (event.key === "Enter") togglePair(pair.code); }}
                   aria-label={`${pair.code}を読み上げ対象${selected.includes(pair.code) ? "から外す" : "にする"}`}>
                   <div className="rate-identity">
-                    <div className="rate-title"><span className="selection-dot" /><strong>{pair.code}</strong></div>
+                    <div className="rate-title"><span className="selection-dot" /><PairPill code={pair.code} /></div>
                     <div className="rate-meta">
                       <time>{visibleRate && !displayFailed ? new Date(visibleRate.timestamp * 1000).toLocaleTimeString("ja-JP", { hour12: false }) : "--:--:--"}</time>
                       <span className={`volatility-badge v${volatility}`} title={`短期ボラティリティ V${volatility}`}>V{volatility}</span>
@@ -2726,9 +2732,6 @@ export default function Home() {
                   </div>
                   <div className="rate-summary">
                     <div className="rate-value-line">
-                      {movement !== "NORMAL" && (
-                        <span className={`movement ${movement}`} title={movementLabel(movement)} aria-label={movementLabel(movement)}>{movementSymbol(movement)}</span>
-                      )}
                       <div className={`rate-value ${useSyntheticDisplay ? "synthetic" : ""}`}
                         title={useSyntheticDisplay ? "OANDA Syntheticレート" : rateSource === "YAHOO" ? "Yahooレート" : "OANDA直接レート"}>
                         {displayFailed ? "取得失敗" : visibleRate ? displayPrice(visibleRate.price, pair.yen) : "---"}
