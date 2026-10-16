@@ -671,11 +671,22 @@ function trendAwareStrengthDifference(history: number[], windowSize: number) {
   return dominantSign * Math.max(liveMagnitude, carriedMagnitude);
 }
 
-function StrengthPentagon({ label, result, displayPairScores, rapidCurrencies }: {
+function strongStrengthCurrencies(displayPairScores: Record<string, number>) {
+  const currencies = new Set<CurrencyCode>();
+  STRENGTH_PAIR_CODES.forEach((pairCode) => {
+    const difference = displayPairScores[pairCode] ?? 0;
+    if (strengthVisual(difference).normalized < 1) return;
+    const [base, quote] = pairCode.split("/") as [CurrencyCode, CurrencyCode];
+    currencies.add(base);
+    currencies.add(quote);
+  });
+  return currencies;
+}
+
+function StrengthPentagon({ label, result, displayPairScores }: {
   label: number;
   result: ReturnType<typeof calculateCurrencyStrength>;
   displayPairScores: Record<string, number>;
-  rapidCurrencies: ReadonlySet<CurrencyCode>;
 }) {
   const centerX = 60;
   const centerY = 55;
@@ -685,6 +696,7 @@ function StrengthPentagon({ label, result, displayPairScores, rapidCurrencies }:
     return [currency, [centerX + Math.cos(angle) * radius, centerY + Math.sin(angle) * radius] as const];
   })) as Record<CurrencyCode, readonly [number, number]>;
   const outerPoints = STRENGTH_VERTEX_ORDER.map((currency) => vertices[currency].join(",")).join(" ");
+  const strongCurrencies = result.ready ? strongStrengthCurrencies(displayPairScores) : new Set<CurrencyCode>();
 
   return <div className={`strength-pentagon ${result.ready ? "ready" : "waiting"}`}>
     <strong>{label}</strong>
@@ -719,7 +731,7 @@ function StrengthPentagon({ label, result, displayPairScores, rapidCurrencies }:
         const angle = -Math.PI / 2 + index * (Math.PI * 2 / 5);
         const x = centerX + Math.cos(angle) * 50;
         const y = centerY + Math.sin(angle) * 50;
-        return <g className={`strength-currency-pill ${rapidCurrencies.has(currency) ? "rapid-currency" : ""}`} key={currency} aria-label={currency}
+        return <g className={`strength-currency-pill ${strongCurrencies.has(currency) ? "strong-currency" : ""}`} key={currency} aria-label={currency}
           style={{ "--pill-color": CURRENCY_COLORS[currency] } as CSSProperties}>
           <rect x={x - 11} y={y - 5} width="22" height="10" rx="4" />
           <text x={x} y={y + 2.4}>{currency}</text>
@@ -2592,16 +2604,6 @@ export default function Home() {
     calculateCurrencyStrength(sparklineHistories, windowSize),
   ])) as Record<number, ReturnType<typeof calculateCurrencyStrength>>, [sparklineHistories]);
   const marketVolatility = useMemo(() => marketVolatilityLevel(sparklineHistories), [sparklineHistories]);
-  const rapidCurrencies = useMemo(() => {
-    const currencies = new Set<CurrencyCode>();
-    PAIRS.forEach((pair) => {
-      const movement = rateDisplayStates[pair.code]?.movement;
-      if (movement !== "RAPID_UP" && movement !== "RAPID_DOWN") return;
-      pair.code.split("/").forEach((currency) => currencies.add(currency as CurrencyCode));
-    });
-    return currencies;
-  }, [rateDisplayStates]);
-
   useEffect(() => {
     const nextDisplayScores: Record<number, Record<string, number>> = {};
     CURRENCY_STRENGTH_WINDOWS.forEach((windowSize) => {
@@ -2728,7 +2730,6 @@ export default function Home() {
                 label={windowSize}
                 result={strengthResults[windowSize]}
                 displayPairScores={strengthDisplayScores[windowSize] ?? strengthResults[windowSize].pairScores}
-                rapidCurrencies={rapidCurrencies}
               />
             ))}
           </div>

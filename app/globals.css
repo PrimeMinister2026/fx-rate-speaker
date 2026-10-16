@@ -90,8 +90,8 @@ button.chosen { border-color:var(--gold); background:#392d0c; color:#fff1b2; box
 .strength-pentagon text { fill:#fff; font-size:7.7px; font-weight:900; text-anchor:middle; }
 .strength-currency-pill rect { fill:var(--pill-color); stroke:#ffffff5c; stroke-width:.45; vector-effect:non-scaling-stroke; }
 .strength-currency-pill text { fill:#fff; paint-order:stroke; stroke:#0005; stroke-width:.35px; }
-.strength-currency-pill.rapid-currency rect { animation:strength-pill-rapid-flash .76s steps(1,end) infinite; }
-@keyframes strength-pill-rapid-flash { 0%,48% { fill:var(--pill-color); } 49%,100% { fill:#fff; } }
+.strength-currency-pill.strong-currency rect { animation:strength-pill-strong-flash .76s steps(1,end) infinite; }
+@keyframes strength-pill-strong-flash { 0%,48% { fill:var(--pill-color); } 49%,100% { fill:#fff; } }
 .strength-pentagon .pentagon-wait { fill:#77766f; font-size:9px; letter-spacing:.08em; }
 .strength-pentagon.waiting { opacity:.58; }
 
@@ -255,7 +255,7 @@ button.chosen { border-color:var(--gold); background:#392d0c; color:#fff1b2; box
 @media (prefers-reduced-motion:reduce) {
   .rate-row.state-rapid_up .pair-pill > span { animation:none; background:#24a566; }
   .rate-row.state-rapid_down .pair-pill > span { animation:none; background:#d9364c; }
-  .strength-currency-pill.rapid-currency rect { animation:none; filter:brightness(1.45); }
+  .strength-currency-pill.strong-currency rect { animation:none; filter:brightness(1.45); }
   .volatility-badge.v4,.volatility-badge.v5 { animation:none; filter:brightness(1.2); }
 }
 

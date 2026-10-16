@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v105<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v106<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -318,11 +318,11 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v105 keeps the app version in one source file", async () => {
+test("v106 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 105/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 106/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -574,8 +574,11 @@ test("v104 localizes rapid and volatility alerts and adds market volatility", as
   assert.match(page, /MARKET_VOLATILITY_WEIGHTS/);
   assert.match(page, /majorHighCount >= MARKET_VOLATILITY_THRESHOLDS\.level5MajorPairs/);
   assert.match(page, /market-volatility market-v\$\{marketVolatility\}/);
-  assert.match(page, /rapidCurrencies=\{rapidCurrencies\}/);
-  assert.match(styles, /\.strength-currency-pill\.rapid-currency rect \{ animation:strength-pill-rapid-flash/);
+  assert.match(page, /function strongStrengthCurrencies/);
+  assert.match(page, /strengthVisual\(difference\)\.normalized < 1/);
+  assert.match(page, /strongCurrencies\.has\(currency\) \? "strong-currency"/);
+  assert.doesNotMatch(page, /rapidCurrencies=\{rapidCurrencies\}|function StrengthPentagon\([^)]*rapidCurrencies/);
+  assert.match(styles, /\.strength-currency-pill\.strong-currency rect \{ animation:strength-pill-strong-flash/);
   assert.doesNotMatch(page, /className="source-note"/);
   assert.match(styles, /@media \(prefers-reduced-motion:reduce\)/);
 });
