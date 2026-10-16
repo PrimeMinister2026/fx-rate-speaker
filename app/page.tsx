@@ -1351,6 +1351,29 @@ export default function Home() {
     }
     const transition = transitionMovement(existingTracker, analysis.candidate, Date.now(), analysis.rapidIntensity);
     movementTrackerRef.current[code] = transition.tracker;
+    if (analysis.candidate === "RAPID_UP" || analysis.candidate === "RAPID_DOWN") {
+      const expectedUp = analysis.candidate === "RAPID_UP";
+      const directionMatches = expectedUp
+        ? analysis.latestPrice > analysis.startPrice
+        : analysis.latestPrice < analysis.startPrice;
+      const rapidAudit = {
+        pair: code,
+        direction: expectedUp ? "UP" : "DOWN",
+        startPrice: analysis.startPrice,
+        latestPrice: analysis.latestPrice,
+        net5: analysis.short.netPips,
+        median5: analysis.thresholds.medianFiveMove,
+        ratioToMedian: analysis.ratioToMedian,
+        percentile5: analysis.percentile5,
+        range60: analysis.thresholds.recentRange,
+        net5ToRange60: analysis.rangeRatio,
+        directionEfficiency: analysis.directionEfficiency,
+        accelerationRatio: analysis.accelerationRatio,
+        directionMatches,
+      };
+      if (!directionMatches) console.error("[FX Rate Speaker RAPID direction mismatch]", rapidAudit);
+      else console.debug("[FX Rate Speaker RAPID audit]", rapidAudit);
+    }
     console.debug("[FX Rate Speaker movement]", {
       pair: code,
       state: transition.tracker.state,
@@ -1366,6 +1389,10 @@ export default function Home() {
       recentRange: `${analysis.thresholds.recentRange.toFixed(2)} pips`,
       trendThreshold: `${analysis.thresholds.trend.toFixed(2)} pips`,
       medianHistorical5: `${analysis.thresholds.medianFiveMove.toFixed(2)} pips`,
+      percentile90Five: `${analysis.thresholds.percentile90FiveMove.toFixed(2)} pips`,
+      percentile95Five: `${analysis.thresholds.percentile95FiveMove.toFixed(2)} pips`,
+      absoluteMove90: `${analysis.thresholds.absoluteMove90.toFixed(2)} pips`,
+      rangeMinimum: `${analysis.thresholds.rangeMinimum.toFixed(2)} pips`,
       rapid5NetThreshold: `${analysis.thresholds.rapidShort.toFixed(2)} pips`,
       directionEfficiency: analysis.directionEfficiency.toFixed(3),
       accelerationRatio: Number.isFinite(analysis.accelerationRatio)

@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v106<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v108<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -318,11 +318,11 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v106 keeps the app version in one source file", async () => {
+test("v108 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 106/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 108/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -414,14 +414,30 @@ test("v105 separates rapid acceleration from sustained trends", async () => {
   assert.match(movement, /RAPID_FIVE_WINDOW_MULTIPLIER = 2\.5/);
   assert.match(movement, /RAPID_ACCELERATION_MULTIPLIER = 1\.5/);
   assert.match(movement, /RAPID_NOTIFICATION_COOLDOWN_MS = 90 \* 1000/);
-  assert.match(movement, /historicalFiveMoveMedian/);
-  assert.match(movement, /Math\.abs\(short\.netPips\).*thresholds\.rapidShort/);
+  assert.match(movement, /historicalMovementDistribution/);
+  assert.match(movement, /const netMagnitude = Math\.abs\(short\.netPips\)/);
+  assert.match(movement, /netMagnitude \+ PIP_COMPARISON_EPSILON >= thresholds\.rapidShort/);
   assert.match(movement, /recentAccelerationAverage \/ precedingAverage/);
   assert.match(movement, /median\(moves\)/);
   assert.doesNotMatch(movement, /RAPID_SHORT_MIN_PIPS|RAPID_LONG_MIN_PIPS|RAPID_SHORT_RANGE_RATIO|RAPID_LONG_RANGE_RATIO|rapidLongUp|rapidLongDown/);
   assert.match(page, /recentRange:/);
   assert.match(page, /movement\.notification === "RAPID_UP" \? "急騰。" : "急落。"/);
   assert.match(page, /rising \? "上昇傾向。" : "下落傾向。"/);
+});
+
+test("v108 requires a material five-change move and audits rapid direction", async () => {
+  const movement = await readFile(new URL("../lib/movement.ts", import.meta.url), "utf8");
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(movement, /RAPID_FIVE_WINDOW_PERCENTILE = 0\.95/);
+  assert.match(movement, /RAPID_ABSOLUTE_MOVE_PERCENTILE = 0\.90/);
+  assert.match(movement, /RAPID_RANGE_RATIO = 0\.15/);
+  assert.match(movement, /thresholds\.percentile95FiveMove/);
+  assert.match(movement, /thresholds\.absoluteMove90 \* RAPID_SHORT_WINDOW/);
+  assert.match(movement, /thresholds\.rangeMinimum/);
+  assert.match(page, /\[FX Rate Speaker RAPID audit\]/);
+  assert.match(page, /\[FX Rate Speaker RAPID direction mismatch\]/);
+  assert.match(page, /latestPrice > analysis\.startPrice/);
+  assert.match(page, /latestPrice < analysis\.startPrice/);
 });
 
 test("v94 keeps OANDA synthetic gray while Yahoo uses the normal rate color", async () => {

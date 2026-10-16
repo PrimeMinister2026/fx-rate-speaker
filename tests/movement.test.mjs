@@ -71,6 +71,78 @@ test("a sharp breakout after quiet trading and temporary trend acceleration are 
   assert.equal(trendAcceleration?.candidate, "RAPID_UP");
 });
 
+test("small countertrend rebounds and pullbacks are not rapid even with a tiny median", () => {
+  const declineThenBounce = analyzeMovement(historyFromChanges(95, 0.01, [
+    ...Array(15).fill(-2),
+    ...alternatingBaseline(25, 0.1),
+    ...Array(5).fill(0.4),
+  ]), 0.01);
+  const riseThenPullback = analyzeMovement(historyFromChanges(95, 0.01, [
+    ...Array(15).fill(2),
+    ...alternatingBaseline(25, 0.1),
+    ...Array(5).fill(-0.4),
+  ]), 0.01);
+
+  assert.ok(declineThenBounce?.ratioToMedian >= 2.5);
+  assert.ok(riseThenPullback?.ratioToMedian >= 2.5);
+  assert.notEqual(declineThenBounce?.candidate, "RAPID_UP");
+  assert.notEqual(riseThenPullback?.candidate, "RAPID_DOWN");
+  assert.ok(declineThenBounce.short.netPips > 0);
+  assert.ok(riseThenPullback.short.netPips < 0);
+});
+
+test("an extremely small median cannot promote an ordinary quiet-market move to rapid", () => {
+  const result = analyzeMovement(historyFromChanges(150, 0.01, [
+    ...alternatingBaseline(10, 2),
+    ...alternatingBaseline(30, 0.1),
+    ...Array(5).fill(0.3),
+  ]), 0.01);
+  assert.ok(result);
+  assert.ok(result.ratioToMedian >= 2.5);
+  assert.notEqual(result.candidate, "RAPID_UP");
+  assert.ok(Math.abs(result.short.netPips) < result.thresholds.percentile95FiveMove
+    || Math.abs(result.short.netPips) < result.thresholds.rangeMinimum
+    || Math.abs(result.short.netPips) < result.thresholds.absoluteMove90 * 5);
+});
+
+test("rapid direction always matches latest minus five-changes-ago, including AUD/JPY", () => {
+  const up = analyzeMovement(historyFromChanges(92, 0.01, [...alternatingBaseline(40, 1), ...Array(5).fill(3)]), 0.01);
+  const down = analyzeMovement(historyFromChanges(92, 0.01, [...alternatingBaseline(40, 1), ...Array(5).fill(-3)]), 0.01);
+  assert.equal(up?.candidate, "RAPID_UP");
+  assert.ok(up.latestPrice > up.startPrice);
+  assert.ok(up.short.netPips > 0);
+  assert.equal(down?.candidate, "RAPID_DOWN");
+  assert.ok(down.latestPrice < down.startPrice);
+  assert.ok(down.short.netPips < 0);
+});
+
+test("material-move filters reduce legacy relative-only rapid candidates", () => {
+  const cases = [
+    ...Array.from({ length: 10 }, (_, index) => [
+      ...Array(15).fill(-2 - index * 0.02),
+      ...alternatingBaseline(25, 0.1),
+      ...Array(5).fill(0.35 + index * 0.01),
+    ]),
+    ...Array.from({ length: 10 }, (_, index) => [
+      ...Array(15).fill(2 + index * 0.02),
+      ...alternatingBaseline(25, 0.1),
+      ...Array(5).fill(-(0.35 + index * 0.01)),
+    ]),
+    ...Array.from({ length: 5 }, (_, index) => [
+      ...alternatingBaseline(40, 1),
+      ...Array(5).fill(3 + index * 0.2),
+    ]),
+  ];
+  const analyses = cases.map((changes) => analyzeMovement(historyFromChanges(95, 0.01, changes), 0.01));
+  const legacyCount = analyses.filter((analysis) => analysis
+    && Math.abs(analysis.short.netPips) >= analysis.thresholds.rapidShort
+    && analysis.accelerationRatio >= 1.5
+    && (analysis.directionEfficiency >= 0.72 || Math.max(analysis.short.upCount, analysis.short.downCount) >= 4)).length;
+  const strictCount = analyses.filter((analysis) => analysis?.candidate === "RAPID_UP" || analysis?.candidate === "RAPID_DOWN").length;
+  assert.equal(legacyCount, 25);
+  assert.equal(strictCount, 5);
+});
+
 test("same-direction rapid notifications cool down for 90 seconds but allow a stronger burst or reversal", () => {
   const first = transitionMovement({ state: "NORMAL", normalConfirmations: 0 }, "RAPID_UP", 1_000, 1.1);
   assert.equal(first.notification, "RAPID_UP");

@@ -13,6 +13,9 @@ export const MIN_VOLATILITY_SAMPLES = 30;
 export const TREND_VOLATILITY_MULTIPLIER = 3;
 export const RAPID_FIVE_WINDOW_MULTIPLIER = 2.5;
 export const RAPID_ACCELERATION_MULTIPLIER = 1.5;
+export const RAPID_FIVE_WINDOW_PERCENTILE = 0.95;
+export const RAPID_ABSOLUTE_MOVE_PERCENTILE = 0.90;
+export const RAPID_RANGE_RATIO = 0.15;
 export const RAPID_NOTIFICATION_COOLDOWN_MS = 90 * 1000;
 export const RAPID_STRONGER_MULTIPLIER = 1.35;
 
@@ -45,6 +48,10 @@ export type MovementThresholds = {
   trend: number;
   rapidShort: number;
   medianFiveMove: number;
+  percentile90FiveMove: number;
+  percentile95FiveMove: number;
+  absoluteMove90: number;
+  rangeMinimum: number;
   sampleCount: number;
 };
 
@@ -55,6 +62,11 @@ export type MovementAnalysis = {
   thresholds: MovementThresholds;
   directionEfficiency: number;
   accelerationRatio: number;
+  startPrice: number;
+  latestPrice: number;
+  ratioToMedian: number;
+  percentile5: number;
+  rangeRatio: number;
   rapidIntensity: number;
 };
 
@@ -99,20 +111,36 @@ function median(values: number[]) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
+function percentile(values: number[], quantile: number) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const position = (sorted.length - 1) * quantile;
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  if (lower === upper) return sorted[lower];
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
+}
+
+function percentileRank(values: number[], value: number) {
+  if (!values.length) return 0;
+  return values.filter((candidate) => candidate <= value + PIP_COMPARISON_EPSILON).length / values.length * 100;
+}
+
 function signedChanges(history: RatePoint[], pipSize: number) {
   return history.slice(1).map((point, index) => (point.price - history[index].price) / pipSize);
 }
 
-function historicalFiveMoveMedian(history: RatePoint[], pipSize: number): number | null {
+function historicalMovementDistribution(history: RatePoint[], pipSize: number) {
   // Keep the current five-change candidate completely outside its own baseline.
   const baselinePoints = history.slice(-(VOLATILITY_WINDOW + 1), -RAPID_SHORT_WINDOW);
   if (baselinePoints.length < RAPID_SHORT_WINDOW + 1) return null;
-  const windows: number[] = [];
+  const fiveMoves: number[] = [];
   for (let end = RAPID_SHORT_WINDOW; end < baselinePoints.length; end += 1) {
-    windows.push(Math.abs(baselinePoints[end].price - baselinePoints[end - RAPID_SHORT_WINDOW].price) / pipSize);
+    fiveMoves.push(Math.abs(baselinePoints[end].price - baselinePoints[end - RAPID_SHORT_WINDOW].price) / pipSize);
   }
-  const positive = windows.filter((value) => value > PIP_COMPARISON_EPSILON);
-  return positive.length ? median(positive) : null;
+  const absoluteMoves = baselinePoints.slice(1)
+    .map((point, index) => Math.abs(point.price - baselinePoints[index].price) / pipSize);
+  return { fiveMoves, absoluteMoves };
 }
 
 export function recentMovePips(history: RatePoint[], pipSize: number, minimumSamples = MIN_VOLATILITY_SAMPLES): number | null {
@@ -132,13 +160,22 @@ function dynamicThresholds(history: RatePoint[], pipSize: number): MovementThres
   const prices = points.map((point) => point.price);
   const recentRange = (Math.max(...prices) - Math.min(...prices)) / pipSize;
   const sampleCount = Math.min(history.length - 1, VOLATILITY_WINDOW);
-  const medianFiveMove = historicalFiveMoveMedian(history, pipSize) ?? recentMove * RAPID_SHORT_WINDOW;
+  const distribution = historicalMovementDistribution(history, pipSize);
+  if (!distribution) return null;
+  const medianFiveMove = median(distribution.fiveMoves);
+  const percentile90FiveMove = percentile(distribution.fiveMoves, 0.90);
+  const percentile95FiveMove = percentile(distribution.fiveMoves, RAPID_FIVE_WINDOW_PERCENTILE);
+  const absoluteMove90 = percentile(distribution.absoluteMoves, RAPID_ABSOLUTE_MOVE_PERCENTILE);
   return {
     recentMove,
     recentRange,
     trend: recentMove * TREND_VOLATILITY_MULTIPLIER,
     rapidShort: medianFiveMove * RAPID_FIVE_WINDOW_MULTIPLIER,
     medianFiveMove,
+    percentile90FiveMove,
+    percentile95FiveMove,
+    absoluteMove90,
+    rangeMinimum: recentRange * RAPID_RANGE_RATIO,
     sampleCount,
   };
 }
@@ -168,7 +205,21 @@ export function analyzeMovement(history: RatePoint[], pipSize: number): Movement
     || short.upCount >= RAPID_DIRECTION_COUNT;
   const directionalDown = directionEfficiency >= RAPID_DIRECTION_EFFICIENCY
     || short.downCount >= RAPID_DIRECTION_COUNT;
-  const rapidMagnitude = Math.abs(short.netPips) + PIP_COMPARISON_EPSILON >= thresholds.rapidShort;
+  const netMagnitude = Math.abs(short.netPips);
+  const ratioToMedian = thresholds.medianFiveMove > PIP_COMPARISON_EPSILON
+    ? netMagnitude / thresholds.medianFiveMove
+    : netMagnitude > PIP_COMPARISON_EPSILON ? Number.POSITIVE_INFINITY : 0;
+  const percentile5 = percentileRank(
+    historicalMovementDistribution(history, pipSize)?.fiveMoves ?? [],
+    netMagnitude,
+  );
+  const rangeRatio = thresholds.recentRange > PIP_COMPARISON_EPSILON
+    ? netMagnitude / thresholds.recentRange
+    : 0;
+  const rapidMagnitude = netMagnitude + PIP_COMPARISON_EPSILON >= thresholds.rapidShort
+    && netMagnitude + PIP_COMPARISON_EPSILON >= thresholds.percentile95FiveMove
+    && netMagnitude + PIP_COMPARISON_EPSILON >= thresholds.absoluteMove90 * RAPID_SHORT_WINDOW
+    && netMagnitude + PIP_COMPARISON_EPSILON >= thresholds.rangeMinimum;
   const accelerated = accelerationRatio + PIP_COMPARISON_EPSILON >= RAPID_ACCELERATION_MULTIPLIER;
   const rapidShortUp = rapidMagnitude && accelerated && directionalUp && short.netPips > 0;
   const rapidShortDown = rapidMagnitude && accelerated && directionalDown && short.netPips < 0;
@@ -180,9 +231,29 @@ export function analyzeMovement(history: RatePoint[], pipSize: number): Movement
     && short.netPips + PIP_COMPARISON_EPSILON >= thresholds.trend) candidate = "UP_TREND";
   else if (short.downCount >= TREND_DIRECTION_COUNT
     && short.netPips - PIP_COMPARISON_EPSILON <= -thresholds.trend) candidate = "DOWN_TREND";
-  const magnitudeRatio = Math.abs(short.netPips) / thresholds.rapidShort;
+  const magnitudeRatio = netMagnitude / Math.max(
+    thresholds.rapidShort,
+    thresholds.percentile95FiveMove,
+    thresholds.absoluteMove90 * RAPID_SHORT_WINDOW,
+    thresholds.rangeMinimum,
+    PIP_COMPARISON_EPSILON,
+  );
   const rapidIntensity = Math.sqrt(magnitudeRatio * (accelerationRatio / RAPID_ACCELERATION_MULTIPLIER));
-  return { candidate, short, long, thresholds, directionEfficiency, accelerationRatio, rapidIntensity };
+  const shortPoints = history.slice(-(RAPID_SHORT_WINDOW + 1));
+  return {
+    candidate,
+    short,
+    long,
+    thresholds,
+    directionEfficiency,
+    accelerationRatio,
+    startPrice: shortPoints[0].price,
+    latestPrice: shortPoints.at(-1)!.price,
+    ratioToMedian,
+    percentile5,
+    rangeRatio,
+    rapidIntensity,
+  };
 }
 
 function side(state: MovementState) {
