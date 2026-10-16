@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   analyzeMovement,
   appendRatePoint,
@@ -111,6 +111,19 @@ const STRENGTH_LINE_MIN_OPACITY = 0.18;
 const STRENGTH_LINE_MAX_OPACITY = 1;
 const STRENGTH_TREND_HISTORY = { 60: 6, 30: 5, 15: 4, 7: 3 } as const;
 const STRENGTH_SIGNIFICANT_DIFFERENCE = 0.75;
+const MARKET_VOLATILITY_WEIGHTS: Record<string, number> = Object.fromEntries(PAIRS.map((pair) => [
+  pair.code,
+  ["EUR/GBP", "EUR/AUD", "GBP/AUD"].includes(pair.code) ? 0.5 : 1,
+]));
+const MARKET_VOLATILITY_THRESHOLDS = {
+  level2Average: 1.6,
+  level3Average: 2.6,
+  level4Average: 3.5,
+  level5Average: 4.35,
+  level4MajorPairs: 2,
+  level5MajorPairs: 4,
+  level5MajorV5Pairs: 2,
+} as const;
 
 type Rate = { price: number; timestamp: number };
 type RateMap = Record<string, Rate>;
@@ -424,9 +437,9 @@ function fallbackMarketProverb(timestamp: number) {
 function PairPill({ code }: { code: string }) {
   const [base, quote] = code.split("/") as [CurrencyCode, CurrencyCode];
   return <span className="pair-pill" aria-label={code}>
-    <span style={{ backgroundColor: CURRENCY_COLORS[base] }}>{base}</span>
+    <span style={{ "--pill-color": CURRENCY_COLORS[base] } as CSSProperties}>{base}</span>
     <i aria-hidden="true">/</i>
-    <span style={{ backgroundColor: CURRENCY_COLORS[quote] }}>{quote}</span>
+    <span style={{ "--pill-color": CURRENCY_COLORS[quote] } as CSSProperties}>{quote}</span>
   </span>;
 }
 
@@ -471,6 +484,28 @@ function shortVolatilityLevel(history: Mode2PricePoint[], pipSize: number) {
   if (ratio <= 1.35) return 3;
   if (ratio <= 2) return 4;
   return 5;
+}
+
+function marketVolatilityLevel(histories: Record<string, Mode2PricePoint[]>) {
+  const levels = PAIRS.map((pair) => ({
+    code: pair.code,
+    level: shortVolatilityLevel(histories[pair.code] ?? [], pair.yen ? 0.01 : 0.0001),
+    weight: MARKET_VOLATILITY_WEIGHTS[pair.code],
+    major: MARKET_VOLATILITY_WEIGHTS[pair.code] === 1,
+  }));
+  const totalWeight = levels.reduce((sum, item) => sum + item.weight, 0);
+  const average = levels.reduce((sum, item) => sum + item.level * item.weight, 0) / totalWeight;
+  const majorHighCount = levels.filter((item) => item.major && item.level >= 4).length;
+  const majorV5Count = levels.filter((item) => item.major && item.level === 5).length;
+
+  if (average >= MARKET_VOLATILITY_THRESHOLDS.level5Average
+    && majorHighCount >= MARKET_VOLATILITY_THRESHOLDS.level5MajorPairs
+    && majorV5Count >= MARKET_VOLATILITY_THRESHOLDS.level5MajorV5Pairs) return 5;
+  if (average >= MARKET_VOLATILITY_THRESHOLDS.level4Average
+    && majorHighCount >= MARKET_VOLATILITY_THRESHOLDS.level4MajorPairs) return 4;
+  if (average >= MARKET_VOLATILITY_THRESHOLDS.level3Average) return 3;
+  if (average >= MARKET_VOLATILITY_THRESHOLDS.level2Average) return 2;
+  return 1;
 }
 
 function normalizedPipValue(price: number, pipSize: number) {
@@ -636,10 +671,11 @@ function trendAwareStrengthDifference(history: number[], windowSize: number) {
   return dominantSign * Math.max(liveMagnitude, carriedMagnitude);
 }
 
-function StrengthPentagon({ label, result, displayPairScores }: {
+function StrengthPentagon({ label, result, displayPairScores, rapidCurrencies }: {
   label: number;
   result: ReturnType<typeof calculateCurrencyStrength>;
   displayPairScores: Record<string, number>;
+  rapidCurrencies: ReadonlySet<CurrencyCode>;
 }) {
   const centerX = 60;
   const centerY = 55;
@@ -683,8 +719,9 @@ function StrengthPentagon({ label, result, displayPairScores }: {
         const angle = -Math.PI / 2 + index * (Math.PI * 2 / 5);
         const x = centerX + Math.cos(angle) * 50;
         const y = centerY + Math.sin(angle) * 50;
-        return <g className="strength-currency-pill" key={currency} aria-label={currency}>
-          <rect x={x - 11} y={y - 5} width="22" height="10" rx="4" fill={CURRENCY_COLORS[currency]} />
+        return <g className={`strength-currency-pill ${rapidCurrencies.has(currency) ? "rapid-currency" : ""}`} key={currency} aria-label={currency}
+          style={{ "--pill-color": CURRENCY_COLORS[currency] } as CSSProperties}>
+          <rect x={x - 11} y={y - 5} width="22" height="10" rx="4" />
           <text x={x} y={y + 2.4}>{currency}</text>
         </g>;
       })}
@@ -2550,6 +2587,16 @@ export default function Home() {
     windowSize,
     calculateCurrencyStrength(sparklineHistories, windowSize),
   ])) as Record<number, ReturnType<typeof calculateCurrencyStrength>>, [sparklineHistories]);
+  const marketVolatility = useMemo(() => marketVolatilityLevel(sparklineHistories), [sparklineHistories]);
+  const rapidCurrencies = useMemo(() => {
+    const currencies = new Set<CurrencyCode>();
+    PAIRS.forEach((pair) => {
+      const movement = rateDisplayStates[pair.code]?.movement;
+      if (movement !== "RAPID_UP" && movement !== "RAPID_DOWN") return;
+      pair.code.split("/").forEach((currency) => currencies.add(currency as CurrencyCode));
+    });
+    return currencies;
+  }, [rateDisplayStates]);
 
   useEffect(() => {
     const nextDisplayScores: Record<number, Record<string, number>> = {};
@@ -2634,6 +2681,9 @@ export default function Home() {
             </div>
             <strong>{marketMessage}</strong>
           </section>
+          <div className={`market-volatility market-v${marketVolatility}`} title="10ペアの相対ボラティリティ">
+            <span>MARKET</span><strong>V{marketVolatility}</strong>
+          </div>
           <div className="two-control-grid">
             <div className="setting-box">
               <span>モード</span>
@@ -2674,19 +2724,10 @@ export default function Home() {
                 label={windowSize}
                 result={strengthResults[windowSize]}
                 displayPairScores={strengthDisplayScores[windowSize] ?? strengthResults[windowSize].pairScores}
+                rapidCurrencies={rapidCurrencies}
               />
             ))}
           </div>
-          <p className="source-note">
-            <span className={`oanda-status ${oandaStatus}`}>
-              {oandaStatus === "connected" ? "OANDA 接続中"
-                : oandaStatus === "unconfigured" ? "OANDA 未設定 / Yahoo予備"
-                  : oandaStatus === "error" ? "OANDA 接続失敗 / Yahoo予備"
-                    : oandaStatus === "fallback" ? "OANDA 切断 / Yahoo予備"
-                      : "OANDA 確認中"}
-            </span><br />
-            OANDA優先・Yahoo予備<br />傾向・急変は採用レートの直近{VOLATILITY_WINDOW}変化で自動判定
-          </p>
         </aside>
 
         <section className="rate-column panel">

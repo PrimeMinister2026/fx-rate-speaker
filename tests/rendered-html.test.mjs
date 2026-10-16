@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v103<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v104<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -222,11 +222,11 @@ test("v67 keeps title, rates and multi-label history readable", async () => {
   assert.match(page, /<h1>FXレート読み上げ<\/h1>/);
   assert.doesNotMatch(page, /<h1><span>FXレート<\/span><span>読み上げ<\/span><\/h1>/);
   assert.match(styles, /\.control-clock \{[^}]*width:100%;[^}]*clamp\(13px,1\.12vw,17px\)/);
-  assert.match(styles, /\.rate-row \{[^}]*minmax\(122px,1\.72fr\)[^}]*minmax\(126px,\.92fr\)[^}]*minmax\(73px,\.58fr\)/);
+  assert.match(styles, /\.rate-row \{[^}]*minmax\(138px,1\.92fr\)[^}]*minmax\(122px,\.88fr\)[^}]*minmax\(70px,\.54fr\)/);
   assert.match(styles, /\.rate-value \{[^}]*padding:0 2px 0 0[^}]*clamp\(24px,1\.95vw,28px\)/);
   assert.doesNotMatch(page, /className="rate-status-slot"/);
-  assert.match(styles, /@keyframes rapid-up-panel-flash/);
-  assert.match(styles, /@keyframes rapid-down-panel-flash/);
+  assert.match(styles, /@keyframes pair-pill-rapid-up/);
+  assert.match(styles, /@keyframes pair-pill-rapid-down/);
   assert.match(page, /className="history-meta"[\s\S]*className="feed-text"/);
   assert.match(styles, /\.history-row \{[^}]*grid-template-columns:minmax\(0,1fr\)/);
   assert.match(styles, /\.history-meta \{[^}]*grid-template-columns:48px minmax\(0,1fr\) 72px/);
@@ -318,11 +318,11 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v103 keeps the app version in one source file", async () => {
+test("v104 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 103/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 104/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -386,9 +386,7 @@ test("v82 exposes OANDA health diagnostics and live connection status", async ()
   assert.match(page, /refreshOandaHealth/);
   assert.match(page, /source\.onopen/);
   assert.match(page, /setOandaStatus\("connected"\)/);
-  assert.match(page, /OANDA 未設定 \/ Yahoo予備/);
-  assert.match(page, /OANDA 接続失敗 \/ Yahoo予備/);
-  assert.match(page, /OANDA 切断 \/ Yahoo予備/);
+  assert.doesNotMatch(page, /OANDA 未設定 \/ Yahoo予備|OANDA優先・Yahoo予備|傾向・急変は採用レート/);
   assert.match(styles, /\.oanda-status\.connected/);
 });
 
@@ -547,7 +545,7 @@ test("v100 selects the three exact completed ten-second grid slots", async () =>
   assert.doesNotMatch(page, /history\.slice\(-4, -1\)\.reverse\(\)/);
 });
 
-test("v103 uses currency pills and background-only movement states", async () => {
+test("v104 localizes rapid and volatility alerts and adds market volatility", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(page, /USD: "#A855F7"/);
@@ -557,14 +555,24 @@ test("v103 uses currency pills and background-only movement states", async () =>
   assert.match(page, /AUD: "#F59E0B"/);
   assert.match(page, /function PairPill/);
   assert.match(page, /<PairPill code=\{pair\.code\} \/>/);
-  assert.match(page, /className="strength-currency-pill"/);
+  assert.match(page, /strength-currency-pill/);
   assert.doesNotMatch(page, /function movementSymbol|className="movement/);
   assert.doesNotMatch(styles, /\.movement \{/);
-  assert.match(styles, /\.sparkline \{[^}]*height:38px/);
+  assert.match(styles, /\.pair-pill > span \{[^}]*font-size:11px/);
+  assert.match(styles, /\.strength-pentagon text \{[^}]*font-size:7\.7px/);
+  assert.match(styles, /\.sparkline \{[^}]*height:40px/);
   assert.match(styles, /\.rate-row\.state-up_trend \{[^}]*background:/);
   assert.match(styles, /\.rate-row\.state-down_trend \{[^}]*background:/);
-  assert.match(styles, /\.rate-row\.state-rapid_up \{ animation:rapid-up-panel-flash/);
-  assert.match(styles, /\.rate-row\.state-rapid_down \{ animation:rapid-down-panel-flash/);
-  assert.match(styles, /\.rate-row\.volatility-high:not\(\.rapid\) \{ animation:volatility-panel-flash/);
+  assert.match(styles, /\.rate-row\.state-rapid_up \.pair-pill > span \{ animation:pair-pill-rapid-up/);
+  assert.match(styles, /\.rate-row\.state-rapid_down \.pair-pill > span \{ animation:pair-pill-rapid-down/);
+  assert.match(styles, /\.volatility-badge\.v4,\.volatility-badge\.v5 \{ animation:volatility-badge-flash/);
+  assert.doesNotMatch(styles, /volatility-panel-flash|rapid-up-panel-flash|rapid-down-panel-flash/);
+  assert.match(page, /function marketVolatilityLevel/);
+  assert.match(page, /MARKET_VOLATILITY_WEIGHTS/);
+  assert.match(page, /majorHighCount >= MARKET_VOLATILITY_THRESHOLDS\.level5MajorPairs/);
+  assert.match(page, /market-volatility market-v\$\{marketVolatility\}/);
+  assert.match(page, /rapidCurrencies=\{rapidCurrencies\}/);
+  assert.match(styles, /\.strength-currency-pill\.rapid-currency rect \{ animation:strength-pill-rapid-flash/);
+  assert.doesNotMatch(page, /className="source-note"/);
   assert.match(styles, /@media \(prefers-reduced-motion:reduce\)/);
 });
