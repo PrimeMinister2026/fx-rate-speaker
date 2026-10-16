@@ -2,15 +2,18 @@ export const TREND_WINDOW = 5;
 export const TREND_DIRECTION_COUNT = 4;
 export const RAPID_SHORT_WINDOW = 5;
 export const RAPID_LONG_WINDOW = 10;
-export const RAPID_DIRECTION_RATIO = 0.7;
+export const RAPID_DIRECTION_EFFICIENCY = 0.72;
+export const RAPID_DIRECTION_COUNT = 4;
+export const RAPID_ACCELERATION_WINDOW = 3;
+export const RAPID_ACCELERATION_BASELINE_WINDOW = 10;
 
 // Each pair learns its own usual tick movement from a robust rolling baseline.
 export const VOLATILITY_WINDOW = 60;
 export const MIN_VOLATILITY_SAMPLES = 30;
 export const TREND_VOLATILITY_MULTIPLIER = 3;
-export const RAPID_SHORT_NORMAL_MULTIPLIER = 2.5;
-export const RAPID_LONG_NORMAL_MULTIPLIER = 2.0;
-export const RAPID_NOTIFICATION_COOLDOWN_MS = 60 * 1000;
+export const RAPID_FIVE_WINDOW_MULTIPLIER = 2.5;
+export const RAPID_ACCELERATION_MULTIPLIER = 1.5;
+export const RAPID_NOTIFICATION_COOLDOWN_MS = 90 * 1000;
 export const RAPID_STRONGER_MULTIPLIER = 1.35;
 
 export const HISTORY_POINT_LIMIT = VOLATILITY_WINDOW + 1;
@@ -41,7 +44,7 @@ export type MovementThresholds = {
   recentRange: number;
   trend: number;
   rapidShort: number;
-  rapidLong: number;
+  medianFiveMove: number;
   sampleCount: number;
 };
 
@@ -50,6 +53,8 @@ export type MovementAnalysis = {
   short: WindowStats;
   long: WindowStats;
   thresholds: MovementThresholds;
+  directionEfficiency: number;
+  accelerationRatio: number;
   rapidIntensity: number;
 };
 
@@ -94,6 +99,22 @@ function median(values: number[]) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
+function signedChanges(history: RatePoint[], pipSize: number) {
+  return history.slice(1).map((point, index) => (point.price - history[index].price) / pipSize);
+}
+
+function historicalFiveMoveMedian(history: RatePoint[], pipSize: number): number | null {
+  // Keep the current five-change candidate completely outside its own baseline.
+  const baselinePoints = history.slice(-(VOLATILITY_WINDOW + 1), -RAPID_SHORT_WINDOW);
+  if (baselinePoints.length < RAPID_SHORT_WINDOW + 1) return null;
+  const windows: number[] = [];
+  for (let end = RAPID_SHORT_WINDOW; end < baselinePoints.length; end += 1) {
+    windows.push(Math.abs(baselinePoints[end].price - baselinePoints[end - RAPID_SHORT_WINDOW].price) / pipSize);
+  }
+  const positive = windows.filter((value) => value > PIP_COMPARISON_EPSILON);
+  return positive.length ? median(positive) : null;
+}
+
 export function recentMovePips(history: RatePoint[], pipSize: number, minimumSamples = MIN_VOLATILITY_SAMPLES): number | null {
   const points = history.slice(-(VOLATILITY_WINDOW + 1));
   const moves = points.slice(1).map((point, index) => Math.abs(point.price - points[index].price) / pipSize);
@@ -111,12 +132,13 @@ function dynamicThresholds(history: RatePoint[], pipSize: number): MovementThres
   const prices = points.map((point) => point.price);
   const recentRange = (Math.max(...prices) - Math.min(...prices)) / pipSize;
   const sampleCount = Math.min(history.length - 1, VOLATILITY_WINDOW);
+  const medianFiveMove = historicalFiveMoveMedian(history, pipSize) ?? recentMove * RAPID_SHORT_WINDOW;
   return {
     recentMove,
     recentRange,
     trend: recentMove * TREND_VOLATILITY_MULTIPLIER,
-    rapidShort: recentMove * RAPID_SHORT_WINDOW * RAPID_SHORT_NORMAL_MULTIPLIER,
-    rapidLong: recentMove * RAPID_LONG_WINDOW * RAPID_LONG_NORMAL_MULTIPLIER,
+    rapidShort: medianFiveMove * RAPID_FIVE_WINDOW_MULTIPLIER,
+    medianFiveMove,
     sampleCount,
   };
 }
@@ -126,31 +148,41 @@ export function analyzeMovement(history: RatePoint[], pipSize: number): Movement
   const short = windowStats(history, RAPID_SHORT_WINDOW, pipSize);
   const long = windowStats(history, RAPID_LONG_WINDOW, pipSize);
   if (!thresholds || !short || !long) return null;
-  const rapidShortUp = short.absolutePips + PIP_COMPARISON_EPSILON >= thresholds.rapidShort
-    && short.netPips > 0
-    && short.upCount / RAPID_SHORT_WINDOW >= RAPID_DIRECTION_RATIO;
-  const rapidShortDown = short.absolutePips + PIP_COMPARISON_EPSILON >= thresholds.rapidShort
-    && short.netPips < 0
-    && short.downCount / RAPID_SHORT_WINDOW >= RAPID_DIRECTION_RATIO;
-  const rapidLongUp = long.absolutePips + PIP_COMPARISON_EPSILON >= thresholds.rapidLong
-    && long.netPips > 0
-    && long.upCount / RAPID_LONG_WINDOW >= RAPID_DIRECTION_RATIO;
-  const rapidLongDown = long.absolutePips + PIP_COMPARISON_EPSILON >= thresholds.rapidLong
-    && long.netPips < 0
-    && long.downCount / RAPID_LONG_WINDOW >= RAPID_DIRECTION_RATIO;
+  const changes = signedChanges(history.slice(-(VOLATILITY_WINDOW + 1)), pipSize);
+  const recentAccelerationMoves = changes.slice(-RAPID_ACCELERATION_WINDOW);
+  const precedingMoves = changes.slice(
+    -(RAPID_ACCELERATION_WINDOW + RAPID_ACCELERATION_BASELINE_WINDOW),
+    -RAPID_ACCELERATION_WINDOW,
+  );
+  const recentAccelerationAverage = recentAccelerationMoves.reduce((sum, value) => sum + Math.abs(value), 0)
+    / RAPID_ACCELERATION_WINDOW;
+  const precedingAverage = precedingMoves.reduce((sum, value) => sum + Math.abs(value), 0)
+    / RAPID_ACCELERATION_BASELINE_WINDOW;
+  const accelerationRatio = precedingAverage > PIP_COMPARISON_EPSILON
+    ? recentAccelerationAverage / precedingAverage
+    : recentAccelerationAverage > PIP_COMPARISON_EPSILON ? Number.POSITIVE_INFINITY : 0;
+  const directionEfficiency = short.absolutePips > PIP_COMPARISON_EPSILON
+    ? Math.abs(short.netPips) / short.absolutePips
+    : 0;
+  const directionalUp = directionEfficiency >= RAPID_DIRECTION_EFFICIENCY
+    || short.upCount >= RAPID_DIRECTION_COUNT;
+  const directionalDown = directionEfficiency >= RAPID_DIRECTION_EFFICIENCY
+    || short.downCount >= RAPID_DIRECTION_COUNT;
+  const rapidMagnitude = Math.abs(short.netPips) + PIP_COMPARISON_EPSILON >= thresholds.rapidShort;
+  const accelerated = accelerationRatio + PIP_COMPARISON_EPSILON >= RAPID_ACCELERATION_MULTIPLIER;
+  const rapidShortUp = rapidMagnitude && accelerated && directionalUp && short.netPips > 0;
+  const rapidShortDown = rapidMagnitude && accelerated && directionalDown && short.netPips < 0;
 
   let candidate: MovementState = "NORMAL";
-  if (rapidShortUp || rapidLongUp) candidate = "RAPID_UP";
-  else if (rapidShortDown || rapidLongDown) candidate = "RAPID_DOWN";
+  if (rapidShortUp) candidate = "RAPID_UP";
+  else if (rapidShortDown) candidate = "RAPID_DOWN";
   else if (short.upCount >= TREND_DIRECTION_COUNT
     && short.netPips + PIP_COMPARISON_EPSILON >= thresholds.trend) candidate = "UP_TREND";
   else if (short.downCount >= TREND_DIRECTION_COUNT
     && short.netPips - PIP_COMPARISON_EPSILON <= -thresholds.trend) candidate = "DOWN_TREND";
-  const rapidIntensity = Math.max(
-    short.absolutePips / thresholds.rapidShort,
-    long.absolutePips / thresholds.rapidLong,
-  );
-  return { candidate, short, long, thresholds, rapidIntensity };
+  const magnitudeRatio = Math.abs(short.netPips) / thresholds.rapidShort;
+  const rapidIntensity = Math.sqrt(magnitudeRatio * (accelerationRatio / RAPID_ACCELERATION_MULTIPLIER));
+  return { candidate, short, long, thresholds, directionEfficiency, accelerationRatio, rapidIntensity };
 }
 
 function side(state: MovementState) {

@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v104<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v105<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -318,11 +318,11 @@ test("v77 requires repeated confirmation before a strong 7-point display", async
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
 });
 
-test("v104 keeps the app version in one source file", async () => {
+test("v105 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 104/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 105/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -404,18 +404,21 @@ test("v81 allows pair selection changes while reading without restarting the wor
   assert.match(styles, /\.rate-row:hover \{/);
 });
 
-test("v102 normalizes rapid alerts to each pair's robust usual movement", async () => {
+test("v105 separates rapid acceleration from sustained trends", async () => {
   const movement = await readFile(new URL("../lib/movement.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(movement, /RAPID_DIRECTION_RATIO = 0\.7/);
+  assert.match(movement, /RAPID_DIRECTION_EFFICIENCY = 0\.72/);
+  assert.match(movement, /RAPID_DIRECTION_COUNT = 4/);
   assert.match(movement, /VOLATILITY_WINDOW = 60/);
   assert.match(movement, /MIN_VOLATILITY_SAMPLES = 30/);
-  assert.match(movement, /RAPID_SHORT_NORMAL_MULTIPLIER = 2\.5/);
-  assert.match(movement, /RAPID_LONG_NORMAL_MULTIPLIER = 2\.0/);
-  assert.match(movement, /recentMove \* RAPID_SHORT_WINDOW \* RAPID_SHORT_NORMAL_MULTIPLIER/);
-  assert.match(movement, /recentMove \* RAPID_LONG_WINDOW \* RAPID_LONG_NORMAL_MULTIPLIER/);
+  assert.match(movement, /RAPID_FIVE_WINDOW_MULTIPLIER = 2\.5/);
+  assert.match(movement, /RAPID_ACCELERATION_MULTIPLIER = 1\.5/);
+  assert.match(movement, /RAPID_NOTIFICATION_COOLDOWN_MS = 90 \* 1000/);
+  assert.match(movement, /historicalFiveMoveMedian/);
+  assert.match(movement, /Math\.abs\(short\.netPips\).*thresholds\.rapidShort/);
+  assert.match(movement, /recentAccelerationAverage \/ precedingAverage/);
   assert.match(movement, /median\(moves\)/);
-  assert.doesNotMatch(movement, /RAPID_SHORT_MIN_PIPS|RAPID_LONG_MIN_PIPS|RAPID_SHORT_RANGE_RATIO|RAPID_LONG_RANGE_RATIO/);
+  assert.doesNotMatch(movement, /RAPID_SHORT_MIN_PIPS|RAPID_LONG_MIN_PIPS|RAPID_SHORT_RANGE_RATIO|RAPID_LONG_RANGE_RATIO|rapidLongUp|rapidLongDown/);
   assert.match(page, /recentRange:/);
   assert.match(page, /movement\.notification === "RAPID_UP" \? "急騰。" : "急落。"/);
   assert.match(page, /rising \? "上昇傾向。" : "下落傾向。"/);

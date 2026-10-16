@@ -1353,13 +1353,17 @@ export default function Home() {
       recentMove: `${analysis.thresholds.recentMove.toFixed(2)} pips`,
       recentRange: `${analysis.thresholds.recentRange.toFixed(2)} pips`,
       trendThreshold: `${analysis.thresholds.trend.toFixed(2)} pips`,
-      rapid5: `${analysis.thresholds.rapidShort.toFixed(2)} pips`,
-      rapid10: `${analysis.thresholds.rapidLong.toFixed(2)} pips`,
+      medianHistorical5: `${analysis.thresholds.medianFiveMove.toFixed(2)} pips`,
+      rapid5NetThreshold: `${analysis.thresholds.rapidShort.toFixed(2)} pips`,
+      directionEfficiency: analysis.directionEfficiency.toFixed(3),
+      accelerationRatio: Number.isFinite(analysis.accelerationRatio)
+        ? analysis.accelerationRatio.toFixed(2)
+        : "Infinity",
       volatilitySamples: `${analysis.thresholds.sampleCount}/${VOLATILITY_WINDOW}`,
       windows: `${RAPID_SHORT_WINDOW}/${RAPID_LONG_WINDOW}`,
     });
     const rapidMovePips = transition.notification === "RAPID_UP" || transition.notification === "RAPID_DOWN"
-      ? Math.max(Math.abs(analysis.short.netPips), Math.abs(analysis.long.netPips))
+      ? Math.abs(analysis.short.netPips)
       : null;
     return {
       notification: transition.notification,
