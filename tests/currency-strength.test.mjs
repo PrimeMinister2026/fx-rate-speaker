@@ -1,8 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { STRENGTH_PAIR_CODES, calculateCurrencyStrength, pairPeriodSignal, periodPoints } from "../lib/currency-strength.ts";
+import { STRENGTH_PAIR_CODES, calculateCurrencyStrength, pairPeriodDirection, pairPeriodSignal, periodPoints } from "../lib/currency-strength.ts";
 
 const currencies = ["USD", "JPY", "EUR", "GBP", "AUD"];
+
+test("rate-card direction windows use elapsed minutes instead of observation counts", () => {
+  const start = 1_800_000_000;
+  const irregular = [0, 17, 2702, 3302, 3542, 3602].map((seconds, index) => ({
+    timestamp: start + seconds,
+    price: 100 + index,
+  }));
+  assert.equal(pairPeriodDirection(irregular, 60).direction, "up");
+  assert.equal(pairPeriodDirection(irregular, 15).direction, "up");
+  assert.equal(pairPeriodDirection(irregular, 5).direction, "up");
+  assert.equal(pairPeriodDirection(irregular, 1).direction, "up");
+});
+
+test("rate-card direction stays unavailable when the requested elapsed-time window is missing", () => {
+  const start = 1_800_000_000;
+  const history = Array.from({ length: 31 }, (_, index) => ({ timestamp: start + index * 60, price: 100 + index }));
+  assert.equal(pairPeriodDirection(history, 60).ready, false);
+  assert.equal(pairPeriodDirection(history, 15).ready, true);
+});
 
 function historiesFromCurrencySlopes(slopes, minutes = 65, spacingSeconds = 60) {
   const points = Math.floor(minutes * 60 / spacingSeconds) + 1;

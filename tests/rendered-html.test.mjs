@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v109<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v110<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -65,9 +65,8 @@ test("v60 still defaults to mode 3 and renders clickable 30-point retained-histo
   assert.match(source, /SPARKLINE_MID_WINDOW = 15/);
   assert.match(source, /SPARKLINE_RECENT_WINDOW = MODE2_POINT_COUNT/);
   assert.match(source, /appendSparklinePoint\(nextSparklineHistories\[pair\.code\]/);
-  assert.match(source, /<FlowDirection label="30" direction=\{chartDirection\}/);
-  assert.match(source, /<FlowDirection label="15" direction=\{midDirection\}/);
-  assert.match(source, /<FlowDirection label="7" direction=\{recentDirection\}/);
+  assert.match(source, /const directionWindows = \[60, 15, 5, 1\]/);
+  assert.match(source, /pairPeriodDirection\(directionHistory, windowMinutes\)/);
   assert.match(source, /const useSyntheticDisplay = rateSource === "OANDA_SYNTHETIC"/);
   assert.match(source, /rate-value \$\{useSyntheticDisplay \? "synthetic"/);
   assert.match(styles, /grid-template-columns:minmax\(240px,25fr\) minmax\(500px,38fr\) minmax\(390px,37fr\)/);
@@ -160,7 +159,7 @@ test("v67 records only aligned ten-second graph points and keeps rapid display s
   assert.match(page, /Math\.floor\(now \/ GRAPH_RATE_POLL_MS\)/);
   assert.match(page, /lastGraphGridRef\.current === gridTimestamp/);
   assert.doesNotMatch(page, /applyRateSnapshot/);
-  assert.match(page, /<FlowDirection label="60"/);
+  assert.match(page, /label=\{String\(windowMinutes\)\}/);
   assert.match(page, /RAPID_DISPLAY_HOLD_MS = 30 \* 1000/);
   assert.match(page, /RAPID_AUDIO_MIN_REMAINING_MS = 15 \* 1000/);
   assert.match(page, /extendRapidDisplayForAudio/);
@@ -173,7 +172,7 @@ test("v67 separates card regions, defers incomplete directions and prioritizes v
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.doesNotMatch(page, /RAPID_UP"\) return "↑↑"|RAPID_DOWN"\) return "↓↓"/);
-  assert.match(page, /requiredPoints=\{SPARKLINE_LONG_WINDOW\}/);
+  assert.match(page, /ready=\{ready\}/);
   assert.match(page, /flow-direction pending/);
   assert.match(page, /selectVisibleHistory\(commentaryHistory, currentTime\)/);
   assert.match(page, /COMMENTARY_HISTORY_RETENTION_LIMIT = 40/);
@@ -318,11 +317,11 @@ test("v109 keeps repeated confirmation for short time-window display", async () 
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowMinutes\)/);
 });
 
-test("v109 keeps the app version in one source file", async () => {
+test("v110 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 109/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 110/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);

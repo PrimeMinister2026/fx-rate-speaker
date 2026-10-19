@@ -40,6 +40,7 @@ import {
   STRENGTH_PAIR_CODES,
   STRENGTH_VERTEX_ORDER,
   calculateCurrencyStrength,
+  pairPeriodDirection,
   type CurrencyCode,
   type CurrencyStrength,
 } from "@/lib/currency-strength";
@@ -774,14 +775,15 @@ function calendarProximityClass(minutes: number) {
   return "proximity-normal";
 }
 
-function FlowDirection({ label, direction, history, requiredPoints }: {
+function FlowDirection({ label, direction, history, requiredPoints, ready }: {
   label: string;
   direction: Direction;
   history: Mode2PricePoint[];
-  requiredPoints: number;
+  requiredPoints?: number;
+  ready?: boolean;
 }) {
-  if (history.length < requiredPoints) {
-    return <span className="flow-direction pending" title={`${label}点 判定未成立`}>{label}<small>--</small></span>;
+  if (ready === false || (requiredPoints !== undefined && history.length < requiredPoints)) {
+    return <span className="flow-direction pending" title={`${label}分 判定未成立`}>{label}<small>--</small></span>;
   }
   return <span className={`flow-direction ${direction} ${visualStrength(history)}`}>{label}{directionArrow(direction)}</span>;
 }
@@ -2882,14 +2884,13 @@ export default function Home() {
               const displayFailed = Boolean(failed && !visibleRate);
               const displayState = rateDisplayStates[pair.code];
               const history = sparklineHistories[pair.code] ?? [];
-              const longHistory = history.slice(-SPARKLINE_LONG_WINDOW);
               const chartHistory = history.slice(-SPARKLINE_BASE_WINDOW);
-              const midHistory = history.slice(-SPARKLINE_MID_WINDOW);
-              const recentHistory = history.slice(-SPARKLINE_RECENT_WINDOW);
-              const longDirection = visualDirection(longHistory, displayState?.direction);
-              const chartDirection = visualDirection(chartHistory, longDirection);
-              const midDirection = visualDirection(midHistory, chartDirection);
-              const recentDirection = visualDirection(recentHistory, midDirection);
+              const chartDirection = visualDirection(chartHistory, displayState?.direction);
+              const directionHistory = strengthHistories[pair.code] ?? [];
+              const directionWindows = [60, 15, 5, 1].map((windowMinutes) => ({
+                windowMinutes,
+                ...pairPeriodDirection(directionHistory, windowMinutes),
+              }));
               const movement = displayState?.movement ?? "NORMAL";
               const rapid = movement === "RAPID_UP" || movement === "RAPID_DOWN";
               const pipSize = pair.yen ? 0.01 : 0.0001;
@@ -2920,11 +2921,10 @@ export default function Home() {
                       </div>
                     </div>
                     <div className="rate-badges">
-                      <span className="flow-badge" title={`60点 ${directionLabel(longDirection)}・30点 ${directionLabel(chartDirection)}・15点 ${directionLabel(midDirection)}・7点 ${directionLabel(recentDirection)}`}>
-                        <FlowDirection label="60" direction={longDirection} history={longHistory} requiredPoints={SPARKLINE_LONG_WINDOW} />
-                        <FlowDirection label="30" direction={chartDirection} history={chartHistory} requiredPoints={SPARKLINE_BASE_WINDOW} />
-                        <FlowDirection label="15" direction={midDirection} history={midHistory} requiredPoints={SPARKLINE_MID_WINDOW} />
-                        <FlowDirection label="7" direction={recentDirection} history={recentHistory} requiredPoints={SPARKLINE_RECENT_WINDOW} />
+                      <span className="flow-badge" title={directionWindows.map(({ windowMinutes, ready, direction }) => `${windowMinutes}分 ${ready ? directionLabel(direction) : "待機"}`).join("・")}>
+                        {directionWindows.map(({ windowMinutes, ready, direction, points }) => (
+                          <FlowDirection key={windowMinutes} label={String(windowMinutes)} direction={direction} history={points} ready={ready} />
+                        ))}
                       </span>
                     </div>
                   </div>

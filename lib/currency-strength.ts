@@ -88,6 +88,21 @@ export function periodPoints(history: StrengthPoint[], windowMinutes: number) {
   return points.length >= 2 ? { points, targetTimestamp, startTimestamp: start.timestamp, endTimestamp: latest.timestamp } : null;
 }
 
+export function pairPeriodDirection(history: StrengthPoint[], windowMinutes: number) {
+  const period = periodPoints(history, windowMinutes);
+  if (!period) return { ready: false as const, direction: "unchanged" as const, points: [] as StrengthPoint[] };
+  const prices = period.points.map((point) => point.price);
+  const first = prices[0];
+  const latest = prices.at(-1)!;
+  const range = Math.max(...prices) - Math.min(...prices);
+  const neutral = range === 0 || Math.abs(latest - first) <= range * 0.08;
+  return {
+    ready: true as const,
+    direction: neutral ? "unchanged" as const : latest > first ? "up" as const : "down" as const,
+    points: period.points,
+  };
+}
+
 export function pairPeriodSignal(history: StrengthPoint[], windowMinutes: number) {
   const period = periodPoints(history, windowMinutes);
   if (!period) return null;
