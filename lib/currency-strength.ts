@@ -1,4 +1,5 @@
-export const CURRENCY_STRENGTH_WINDOWS = [60, 30, 15, 7] as const;
+export const CURRENCY_STRENGTH_WINDOWS = [60, 15, 5, 1] as const;
+export type CurrencyStrengthWindowMinutes = typeof CURRENCY_STRENGTH_WINDOWS[number];
 export const STRENGTH_CURRENCIES = ["USD", "JPY", "EUR", "GBP", "AUD"] as const;
 export const STRENGTH_VERTEX_ORDER = ["USD", "JPY", "AUD", "GBP", "EUR"] as const;
 export const STRENGTH_PAIR_CODES = [
@@ -30,6 +31,7 @@ type PairFeature = {
 
 
 const EPSILON = 1e-12;
+export const STRENGTH_TARGET_TOLERANCE_SECONDS = 75;
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -40,29 +42,56 @@ function mean(values: number[]) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function windowWeights(windowSize: number) {
-  if (windowSize >= 60) {
+function windowWeights(windowMinutes: number) {
+  if (windowMinutes >= 60) {
     return { rank: 0.40, agreement: 0.30, continuation: 0.25, magnitude: 0.05, acceleration: 0 };
   }
-  if (windowSize >= 30) {
-    return { rank: 0.35, agreement: 0.30, continuation: 0.25, magnitude: 0.10, acceleration: 0 };
-  }
-  if (windowSize >= 15) {
+  if (windowMinutes >= 15) {
     return { rank: 0.30, agreement: 0.30, continuation: 0.25, magnitude: 0.10, acceleration: 0.05 };
   }
   return { rank: 0.25, agreement: 0.30, continuation: 0.25, magnitude: 0.15, acceleration: 0.05 };
 }
 
-function scoreSpan(windowSize: number) {
-  if (windowSize >= 60) return 48;
-  if (windowSize >= 30) return 44;
-  if (windowSize >= 15) return 40;
+function scoreSpan(windowMinutes: number) {
+  if (windowMinutes >= 60) return 48;
+  if (windowMinutes >= 15) return 40;
+  if (windowMinutes >= 5) return 36;
   return 32;
 }
 
-export function pairPeriodSignal(history: StrengthPoint[], windowSize: number) {
-  const points = history.slice(-windowSize);
-  if (points.length < windowSize) return null;
+function sortedValidPoints(history: StrengthPoint[]) {
+  const byTimestamp = new Map<number, StrengthPoint>();
+  history.forEach((point) => {
+    if (Number.isFinite(point.price) && point.price > 0 && Number.isFinite(point.timestamp)) {
+      byTimestamp.set(point.timestamp, point);
+    }
+  });
+  return [...byTimestamp.values()].sort((left, right) => left.timestamp - right.timestamp);
+}
+
+export function periodPoints(history: StrengthPoint[], windowMinutes: number) {
+  const valid = sortedValidPoints(history);
+  if (valid.length < 2) return null;
+  const latest = valid.at(-1)!;
+  const targetTimestamp = latest.timestamp - windowMinutes * 60;
+  let start = valid[0];
+  let closestDistance = Math.abs(start.timestamp - targetTimestamp);
+  for (const point of valid) {
+    const distance = Math.abs(point.timestamp - targetTimestamp);
+    if (distance < closestDistance) {
+      start = point;
+      closestDistance = distance;
+    }
+  }
+  if (closestDistance > STRENGTH_TARGET_TOLERANCE_SECONDS) return null;
+  const points = valid.filter((point) => point.timestamp >= start.timestamp && point.timestamp <= latest.timestamp);
+  return points.length >= 2 ? { points, targetTimestamp, startTimestamp: start.timestamp, endTimestamp: latest.timestamp } : null;
+}
+
+export function pairPeriodSignal(history: StrengthPoint[], windowMinutes: number) {
+  const period = periodPoints(history, windowMinutes);
+  if (!period) return null;
+  const { points } = period;
 
   const logs = points.map((point) => Math.log(point.price));
   const returns = logs.slice(1).map((value, index) => value - logs[index]);
@@ -120,27 +149,34 @@ function attachMagnitudeRanks(features: Record<string, PairFeature>) {
   });
 }
 
-export function calculateCurrencyStrength(histories: Record<string, StrengthPoint[]>, windowSize: number) {
+export function calculateCurrencyStrength(histories: Record<string, StrengthPoint[]>, windowMinutes: number) {
   const raw = Object.fromEntries(STRENGTH_CURRENCIES.map((currency) => [currency, 0])) as CurrencyStrength;
   const counts = Object.fromEntries(STRENGTH_CURRENCIES.map((currency) => [currency, 0])) as CurrencyStrength;
   const pairSignals: Record<string, number> = {};
   const features: Record<string, PairFeature> = {};
+  const periods: Record<string, { usedPointCount: number; startTimestamp: number; endTimestamp: number }> = {};
   let usedPairs = 0;
 
   for (const pairCode of STRENGTH_PAIR_CODES) {
-    const feature = pairPeriodSignal(histories[pairCode] ?? [], windowSize);
+    const period = periodPoints(histories[pairCode] ?? [], windowMinutes);
+    const feature = pairPeriodSignal(histories[pairCode] ?? [], windowMinutes);
     if (feature === null) continue;
     features[pairCode] = feature;
+    periods[pairCode] = {
+      usedPointCount: period!.points.length,
+      startTimestamp: period!.startTimestamp,
+      endTimestamp: period!.endTimestamp,
+    };
     pairSignals[pairCode] = feature.totalReturn;
     usedPairs += 1;
   }
 
   if (usedPairs < STRENGTH_PAIR_CODES.length) {
-    return { ready: false, scores: null, raw, pairSignals, pairScores: {}, usedPairs };
+    return { ready: false, scores: null, raw, pairSignals, pairScores: {}, usedPairs, periods };
   }
 
   attachMagnitudeRanks(features);
-  const weights = windowWeights(windowSize);
+  const weights = windowWeights(windowMinutes);
   const componentTotals = Object.fromEntries(STRENGTH_CURRENCIES.map((currency) => [currency, {
     rank: 0,
     agreement: 0,
@@ -187,7 +223,7 @@ export function calculateCurrencyStrength(histories: Record<string, StrengthPoin
       + (components.acceleration / divisor) * weights.acceleration;
 
     raw[currency] = composite;
-    return [currency, clamp(50 + composite * scoreSpan(windowSize), 0, 100)];
+    return [currency, clamp(50 + composite * scoreSpan(windowMinutes), 0, 100)];
   })) as CurrencyStrength;
 
   const pairScores = Object.fromEntries(STRENGTH_PAIR_CODES.map((pairCode) => {
@@ -195,5 +231,5 @@ export function calculateCurrencyStrength(histories: Record<string, StrengthPoin
     return [pairCode, scores[base] - scores[quote]];
   }));
 
-  return { ready: true, scores, raw, pairSignals, pairScores, usedPairs };
+  return { ready: true, scores, raw, pairSignals, pairScores, usedPairs, periods };
 }

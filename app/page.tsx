@@ -81,6 +81,9 @@ const SPARKLINE_LONG_WINDOW = 60;
 const SPARKLINE_BASE_WINDOW = 30;
 const SPARKLINE_MID_WINDOW = 15;
 const SPARKLINE_RECENT_WINDOW = MODE2_POINT_COUNT;
+const STRENGTH_HISTORY_RETENTION_SECONDS = 65 * 60;
+const STRENGTH_CACHE_MAX_AGE_MS = 2 * 60 * 1000;
+const STRENGTH_HISTORY_STORAGE_KEY = "fx-rate-speaker-strength-history-v1";
 const BREAKOUT_LOOKBACK_SECONDS = 15 * 60;
 const BREAKOUT_RANGE_RATIO = 0.04;
 const BREAKOUT_MIN_PIPS = 0.5;
@@ -109,7 +112,7 @@ const STRENGTH_LINE_MIN_WIDTH = 0.7;
 const STRENGTH_LINE_MAX_WIDTH = 8.2;
 const STRENGTH_LINE_MIN_OPACITY = 0.18;
 const STRENGTH_LINE_MAX_OPACITY = 1;
-const STRENGTH_TREND_HISTORY = { 60: 6, 30: 5, 15: 4, 7: 3 } as const;
+const STRENGTH_TREND_HISTORY = { 60: 6, 15: 4, 5: 3, 1: 3 } as const;
 const STRENGTH_SIGNIFICANT_DIFFERENCE = 0.75;
 const MARKET_VOLATILITY_WEIGHTS: Record<string, number> = Object.fromEntries(PAIRS.map((pair) => [
   pair.code,
@@ -129,6 +132,7 @@ type Rate = { price: number; timestamp: number };
 type RateMap = Record<string, Rate>;
 type RateSource = "OANDA" | "OANDA_SYNTHETIC" | "YAHOO";
 type RateResponse = { rates?: RateMap; syntheticSources?: RateMap; syntheticActuals?: RateMap; fetchedAt?: number; error?: string };
+type StrengthHistoryResponse = { histories?: Record<string, Mode2PricePoint[]>; fetchedAt?: number; source?: string; error?: string };
 type Direction = "up" | "down" | "unchanged";
 type PlaybackCue = Direction | MovementNotification;
 type AudioMode = "mode2" | "mode3" | "mode4";
@@ -582,6 +586,27 @@ function appendSparklinePoint(history: Mode2PricePoint[], point: Mode2PricePoint
   return [...history, point].slice(-SPARKLINE_HISTORY_POINT_COUNT);
 }
 
+function appendStrengthPoint(history: Mode2PricePoint[], point: Mode2PricePoint) {
+  if (!Number.isFinite(point.price) || point.price <= 0 || !Number.isFinite(point.timestamp)) return history;
+  const byTimestamp = new Map(history.map((entry) => [entry.timestamp, entry]));
+  byTimestamp.set(point.timestamp, point);
+  const cutoff = point.timestamp - STRENGTH_HISTORY_RETENTION_SECONDS;
+  return [...byTimestamp.values()]
+    .filter((entry) => entry.timestamp >= cutoff && entry.timestamp <= point.timestamp)
+    .sort((left, right) => left.timestamp - right.timestamp);
+}
+
+function hasFullStrengthCoverage(histories: Record<string, Mode2PricePoint[]>, nowSeconds: number) {
+  return STRENGTH_PAIR_CODES.every((pairCode) => {
+    const points = histories[pairCode] ?? [];
+    if (points.length < 2) return false;
+    const first = points[0];
+    const last = points.at(-1)!;
+    return last.timestamp >= nowSeconds - 120
+      && last.timestamp - first.timestamp >= 60 * 60 - 75;
+  });
+}
+
 function directionArrow(direction: Direction) {
   return direction === "up" ? "↑" : direction === "down" ? "↓" : "→";
 }
@@ -699,8 +724,8 @@ function StrengthPentagon({ label, result, displayPairScores }: {
   const strongCurrencies = result.ready ? strongStrengthCurrencies(displayPairScores) : new Set<CurrencyCode>();
 
   return <div className={`strength-pentagon ${result.ready ? "ready" : "waiting"}`}>
-    <strong>{label}</strong>
-    <svg viewBox="0 0 120 108" role="img" aria-label={`${label}点 通貨強弱${result.ready ? "" : " WAIT"}`}>
+    <strong>{label}m</strong>
+    <svg viewBox="0 0 120 108" role="img" aria-label={`${label}分 通貨強弱${result.ready ? "" : " WAIT"}`}>
       <polygon className="strength-frame" points={outerPoints} />
       {STRENGTH_PAIR_CODES.map((pairCode) => {
         const [base, quote] = pairCode.split("/") as [CurrencyCode, CurrencyCode];
@@ -837,6 +862,7 @@ export default function Home() {
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [rateDisplayStates, setRateDisplayStates] = useState<Record<string, RateDisplayState>>({});
   const [sparklineHistories, setSparklineHistories] = useState<Record<string, Mode2PricePoint[]>>({});
+  const [strengthHistories, setStrengthHistories] = useState<Record<string, Mode2PricePoint[]>>({});
   const [volume, setVolume] = useState(80);
   const volumeRef = useRef(0.8);
   const speechRateRef = useRef(DEFAULT_SPEECH_RATE);
@@ -869,6 +895,9 @@ export default function Home() {
   const rateHistoryRef = useRef<Record<string, RatePoint[]>>({});
   const audioPriceHistoryRef = useRef<Record<string, Mode2PricePoint[]>>({});
   const sparklineHistoriesRef = useRef<Record<string, Mode2PricePoint[]>>({});
+  const strengthHistoriesRef = useRef<Record<string, Mode2PricePoint[]>>({});
+  const strengthBackfillNeedsAlignmentRef = useRef(new Set<string>());
+  const lastStrengthCacheSaveRef = useRef(0);
   const lastGraphGridRef = useRef<number | null>(null);
   const rapidDisplayRef = useRef<Record<string, { state: "RAPID_UP" | "RAPID_DOWN"; until: number }>>({});
   const movementTrackerRef = useRef<Record<string, MovementTracker>>({});
@@ -1750,6 +1779,8 @@ export default function Home() {
     rateHistoryRef.current = {};
     audioPriceHistoryRef.current = {};
     sparklineHistoriesRef.current = {};
+    strengthHistoriesRef.current = {};
+    strengthBackfillNeedsAlignmentRef.current.clear();
     previousAnalysisRatesRef.current = {};
     movementTrackerRef.current = {};
     volatilityRegimeRef.current = {};
@@ -1762,6 +1793,7 @@ export default function Home() {
     commentaryCooldownRef.current.clear();
     pendingCommentaryRef.current = [];
     setSparklineHistories({});
+    setStrengthHistories({});
     setRateDisplayStates({});
     setStrengthDisplayScores({});
     setCommentaryHistory([]);
@@ -2111,11 +2143,74 @@ export default function Home() {
     });
   }
 
+  function persistStrengthHistory(histories: Record<string, Mode2PricePoint[]>) {
+    try {
+      localStorage.setItem(STRENGTH_HISTORY_STORAGE_KEY, JSON.stringify({
+        savedAt: Date.now(),
+        histories,
+      }));
+      lastStrengthCacheSaveRef.current = Date.now();
+    } catch {
+      // Strength continues in memory when browser storage is unavailable.
+    }
+  }
+
+  function applyStrengthBackfill(histories: Record<string, Mode2PricePoint[]>) {
+    const cleaned = Object.fromEntries(STRENGTH_PAIR_CODES.map((pairCode) => [
+      pairCode,
+      (histories[pairCode] ?? [])
+        .filter((point) => Number.isFinite(point.price) && point.price > 0 && Number.isFinite(point.timestamp))
+        .sort((left, right) => left.timestamp - right.timestamp),
+    ]));
+    strengthHistoriesRef.current = cleaned;
+    strengthBackfillNeedsAlignmentRef.current = new Set(
+      STRENGTH_PAIR_CODES.filter((pairCode) => cleaned[pairCode]?.length),
+    );
+    setStrengthHistories(cleaned);
+    persistStrengthHistory(cleaned);
+  }
+
+  async function initializeStrengthHistory(runId: number) {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    try {
+      const saved = JSON.parse(localStorage.getItem(STRENGTH_HISTORY_STORAGE_KEY) || "null") as {
+        savedAt?: number;
+        histories?: Record<string, Mode2PricePoint[]>;
+      } | null;
+      if (saved?.histories
+        && Number.isFinite(saved.savedAt)
+        && Date.now() - Number(saved.savedAt) <= STRENGTH_CACHE_MAX_AGE_MS
+        && hasFullStrengthCoverage(saved.histories, nowSeconds)) {
+        if (runId === runIdRef.current) applyStrengthBackfill(saved.histories);
+        console.debug("[FX Rate Speaker strength backfill] cache reused", { savedAt: saved.savedAt });
+        return;
+      }
+    } catch {
+      // Fetch a fresh one-minute backfill when cache parsing fails.
+    }
+
+    try {
+      const response = await fetch(`/api/rates/history?t=${Date.now()}`, { cache: "no-store" });
+      const data = await response.json() as StrengthHistoryResponse;
+      if (!response.ok || !data.histories) throw new Error(data.error || "過去レート取得失敗");
+      if (runId !== runIdRef.current) return;
+      applyStrengthBackfill(data.histories);
+      console.debug("[FX Rate Speaker strength backfill] historical loaded", {
+        source: data.source,
+        fetchedAt: data.fetchedAt,
+        pairs: Object.fromEntries(STRENGTH_PAIR_CODES.map((pairCode) => [pairCode, data.histories?.[pairCode]?.length ?? 0])),
+      });
+    } catch (error) {
+      console.warn("[FX Rate Speaker strength backfill] unavailable; live accumulation will be used", error);
+    }
+  }
+
   function recordGraphGridPoint(now = Date.now()) {
     const gridTimestamp = Math.floor(now / GRAPH_RATE_POLL_MS) * (GRAPH_RATE_POLL_MS / 1000);
     if (lastGraphGridRef.current === gridTimestamp) return sparklineHistoriesRef.current;
     lastGraphGridRef.current = gridTimestamp;
     const nextSparklineHistories = { ...sparklineHistoriesRef.current };
+    const nextStrengthHistories = { ...strengthHistoriesRef.current };
     PAIRS.forEach((pair) => {
       const latest = ratesRef.current[pair.code];
       if (!latest || !Number.isFinite(latest.price) || latest.price <= 0) return;
@@ -2123,9 +2218,29 @@ export default function Home() {
         price: latest.price,
         timestamp: gridTimestamp,
       });
+      let strengthHistory = nextStrengthHistories[pair.code] ?? [];
+      if (strengthBackfillNeedsAlignmentRef.current.has(pair.code) && strengthHistory.length) {
+        const historicalLast = strengthHistory.at(-1)!.price;
+        const ratio = historicalLast > 0 ? latest.price / historicalLast : 1;
+        strengthHistory = strengthHistory.map((point) => ({ ...point, price: point.price * ratio }));
+        strengthBackfillNeedsAlignmentRef.current.delete(pair.code);
+        console.debug("[FX Rate Speaker strength backfill] live alignment", {
+          pair: pair.code,
+          historicalLast,
+          liveFirst: latest.price,
+          ratio,
+        });
+      }
+      nextStrengthHistories[pair.code] = appendStrengthPoint(strengthHistory, {
+        price: latest.price,
+        timestamp: gridTimestamp,
+      });
     });
     sparklineHistoriesRef.current = nextSparklineHistories;
+    strengthHistoriesRef.current = nextStrengthHistories;
     setSparklineHistories(nextSparklineHistories);
+    setStrengthHistories(nextStrengthHistories);
+    if (Date.now() - lastStrengthCacheSaveRef.current >= 60_000) persistStrengthHistory(nextStrengthHistories);
     return nextSparklineHistories;
   }
 
@@ -2491,6 +2606,7 @@ export default function Home() {
     workerRef.current?.postMessage({ type: "clockStart", runId });
     workerRef.current?.postMessage({ type: "graphStart", runId });
     startOandaPrimary(runId);
+    void initializeStrengthHistory(runId);
     countdownRef.current = setInterval(() => {
       const remaining = Math.max(0, Math.ceil((endAtRef.current - Date.now()) / 1000));
       setRemainingSeconds(remaining);
@@ -2626,17 +2742,17 @@ export default function Home() {
   const upcomingCalendarMinutes = upcomingCalendarEvent
     ? Math.max(0, Math.ceil((upcomingCalendarEvent.scheduledAt - currentTime) / 60_000))
     : null;
-  const strengthResults = useMemo(() => Object.fromEntries(CURRENCY_STRENGTH_WINDOWS.map((windowSize) => [
-    windowSize,
-    calculateCurrencyStrength(sparklineHistories, windowSize),
-  ])) as Record<number, ReturnType<typeof calculateCurrencyStrength>>, [sparklineHistories]);
+  const strengthResults = useMemo(() => Object.fromEntries(CURRENCY_STRENGTH_WINDOWS.map((windowMinutes) => [
+    windowMinutes,
+    calculateCurrencyStrength(strengthHistories, windowMinutes),
+  ])) as Record<number, ReturnType<typeof calculateCurrencyStrength>>, [strengthHistories]);
   const marketVolatility = useMemo(() => marketVolatilityLevel(sparklineHistories), [sparklineHistories]);
   useEffect(() => {
     const nextDisplayScores: Record<number, Record<string, number>> = {};
-    CURRENCY_STRENGTH_WINDOWS.forEach((windowSize) => {
-      const result = strengthResults[windowSize];
-      const historyLimit = STRENGTH_TREND_HISTORY[windowSize];
-      const windowHistory = strengthTrendHistoryRef.current[windowSize] ?? {};
+    CURRENCY_STRENGTH_WINDOWS.forEach((windowMinutes) => {
+      const result = strengthResults[windowMinutes];
+      const historyLimit = STRENGTH_TREND_HISTORY[windowMinutes];
+      const windowHistory = strengthTrendHistoryRef.current[windowMinutes] ?? {};
       const nextWindowHistory: Record<string, number[]> = { ...windowHistory };
       const nextWindowDisplay: Record<string, number> = {};
 
@@ -2644,19 +2760,19 @@ export default function Home() {
         const rawDifference = result.pairScores[pairCode] ?? 0;
         const nextHistory = [...(windowHistory[pairCode] ?? []), rawDifference].slice(-historyLimit);
         nextWindowHistory[pairCode] = nextHistory;
-        nextWindowDisplay[pairCode] = result.ready ? trendAwareStrengthDifference(nextHistory, windowSize) : 0;
+        nextWindowDisplay[pairCode] = result.ready ? trendAwareStrengthDifference(nextHistory, windowMinutes) : 0;
       });
 
-      strengthTrendHistoryRef.current[windowSize] = nextWindowHistory;
-      nextDisplayScores[windowSize] = nextWindowDisplay;
+      strengthTrendHistoryRef.current[windowMinutes] = nextWindowHistory;
+      nextDisplayScores[windowMinutes] = nextWindowDisplay;
     });
     setStrengthDisplayScores(nextDisplayScores);
   }, [strengthResults]);
 
   useEffect(() => {
-    CURRENCY_STRENGTH_WINDOWS.forEach((windowSize) => {
-      const result = strengthResults[windowSize];
-      const previous = previousStrengthScoresRef.current[windowSize];
+    CURRENCY_STRENGTH_WINDOWS.forEach((windowMinutes) => {
+      const result = strengthResults[windowMinutes];
+      const previous = previousStrengthScoresRef.current[windowMinutes];
       const delta = result.scores && previous
         ? Object.fromEntries(STRENGTH_CURRENCIES.map((currency) => [
             currency,
@@ -2664,24 +2780,17 @@ export default function Home() {
           ]))
         : null;
       console.debug("FX Rate Speaker currency strength", {
-        window: windowSize,
+        windowMinutes,
         raw: result.raw,
         normalized: result.scores,
         pairSignals: result.pairSignals,
         pairScores: result.pairScores,
         delta,
         usedPairs: result.usedPairs,
-        periods: Object.fromEntries(STRENGTH_PAIR_CODES.map((pairCode) => {
-          const points = (sparklineHistories[pairCode] ?? []).slice(-windowSize);
-          return [pairCode, {
-            usedPointCount: points.length,
-            startTimestamp: points[0]?.timestamp ?? null,
-            endTimestamp: points.at(-1)?.timestamp ?? null,
-          }];
-        })),
+        periods: result.periods,
         updatedAt: new Date(lastGraphGridRef.current ? lastGraphGridRef.current * 1000 : Date.now()).toISOString(),
       });
-      if (result.scores) previousStrengthScoresRef.current[windowSize] = result.scores;
+      if (result.scores) previousStrengthScoresRef.current[windowMinutes] = result.scores;
     });
   }, [strengthResults]);
 
@@ -2751,12 +2860,12 @@ export default function Home() {
             <div className={`countdown ${running ? "active" : ""}`}><span>自動停止</span><strong>{formatRemaining(remainingSeconds)}</strong></div>
           </div>
           <div className="strength-grid" aria-label="通貨強弱">
-            {CURRENCY_STRENGTH_WINDOWS.map((windowSize) => (
+            {CURRENCY_STRENGTH_WINDOWS.map((windowMinutes) => (
               <StrengthPentagon
-                key={windowSize}
-                label={windowSize}
-                result={strengthResults[windowSize]}
-                displayPairScores={strengthDisplayScores[windowSize] ?? strengthResults[windowSize].pairScores}
+                key={windowMinutes}
+                label={windowMinutes}
+                result={strengthResults[windowMinutes]}
+                displayPairScores={strengthDisplayScores[windowMinutes] ?? strengthResults[windowMinutes].pairScores}
               />
             ))}
           </div>

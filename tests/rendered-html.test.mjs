@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v108<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v109<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -188,13 +188,13 @@ test("v67 renders four ten-pair currency-strength pentagons and compact controls
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const strength = await readFile(new URL("../lib/currency-strength.ts", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(strength, /CURRENCY_STRENGTH_WINDOWS = \[60, 30, 15, 7\]/);
+  assert.match(strength, /CURRENCY_STRENGTH_WINDOWS = \[60, 15, 5, 1\]/);
   assert.match(strength, /STRENGTH_VERTEX_ORDER = \["USD", "JPY", "AUD", "GBP", "EUR"\]/);
   assert.match(strength, /Math\.log\(point\.price\)/);
-  assert.match(strength, /rank: 0\.35, agreement: 0\.30, continuation: 0\.25, magnitude: 0\.10/);
+  assert.match(strength, /rank: 0\.30, agreement: 0\.30, continuation: 0\.25, magnitude: 0\.10/);
   assert.match(strength, /componentTotals\[base\]\.agreement \+= signedQuality;[\s\S]*componentTotals\[quote\]\.agreement -= signedQuality/);
   assert.match(strength, /usedPairs < STRENGTH_PAIR_CODES\.length/);
-  assert.match(strength, /clamp\(50 \+ composite \* scoreSpan\(windowSize\), 0, 100\)/);
+  assert.match(strength, /clamp\(50 \+ composite \* scoreSpan\(windowMinutes\), 0, 100\)/);
   assert.match(page, /STRENGTH_PAIR_CODES\.map[\s\S]*data-pair=\{pairCode\}/);
   assert.match(page, /<linearGradient[\s\S]*stopColor=\{baseColor\}[\s\S]*stopColor=\{quoteColor\}/);
   assert.doesNotMatch(page, /magnitude < 6|magnitude >= 18/);
@@ -203,7 +203,7 @@ test("v67 renders four ten-pair currency-strength pentagons and compact controls
   assert.match(page, /strokeWidth=\{mapping\.width\}/);
   assert.match(page, /className="strength-guide-line"/);
   assert.doesNotMatch(page, /className="radar-value"/);
-  assert.match(page, /<StrengthPentagon[\s\S]*key=\{windowSize\}[\s\S]*displayPairScores=/);
+  assert.match(page, /<StrengthPentagon[\s\S]*key=\{windowMinutes\}[\s\S]*displayPairScores=/);
   assert.match(page, /className="pentagon-wait"[\s\S]*WAIT/);
   assert.match(page, /event\.key === "m" \|\| event\.key === "M"/);
   assert.match(page, /applySoundEnabled\(!soundOnRef\.current\)/);
@@ -248,12 +248,12 @@ test("v69 prefers live Yahoo meta quotes and prevents stale synthetic graph reus
 test("v70 uses trend-aware strength persistence and keeps status immediately left of the restored large rate", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(page, /STRENGTH_TREND_HISTORY = \{ 60: 6, 30: 5, 15: 4, 7: 3 \}/);
+  assert.match(page, /STRENGTH_TREND_HISTORY = \{ 60: 6, 15: 4, 5: 3, 1: 3 \}/);
   assert.match(page, /function trendAwareStrengthDifference/);
   assert.match(page, /consistency \* 0\.65/);
   assert.match(page, /consecutive/);
   assert.match(page, /strengthTrendHistoryRef/);
-  assert.match(page, /displayPairScores=\{strengthDisplayScores\[windowSize\]/);
+  assert.match(page, /displayPairScores=\{strengthDisplayScores\[windowMinutes\]/);
   assert.doesNotMatch(page, /movementSymbol\(movement\)|className="movement/);
   assert.match(styles, /\.rate-value-line \{[^}]*display:flex[^}]*align-items:baseline[^}]*justify-content:flex-end/);
   assert.match(styles, /\.rate-value \{[^}]*clamp\(24px,1\.95vw,28px\)/);
@@ -302,33 +302,50 @@ test("v77 uses window-specific currency-strength v2.1 weighting", async () => {
   assert.match(strength, /efficiency \* 0\.45 \+ Math\.abs\(directionBalance\) \* 0\.35 \+ activityConfidence \* 0\.20/);
   assert.match(strength, /attachMagnitudeRanks/);
   assert.match(strength, /components\.acceleration/);
-  assert.match(strength, /if \(windowSize >= 60\) return 48/);
-  assert.match(strength, /if \(windowSize >= 30\) return 44/);
-  assert.match(strength, /if \(windowSize >= 15\) return 40/);
+  assert.match(strength, /if \(windowMinutes >= 60\) return 48/);
+  assert.match(strength, /if \(windowMinutes >= 15\) return 40/);
+  assert.match(strength, /if \(windowMinutes >= 5\) return 36/);
   assert.match(strength, /return 32/);
 });
 
-test("v77 requires repeated confirmation before a strong 7-point display", async () => {
+test("v109 keeps repeated confirmation for short time-window display", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(page, /function trendAwareStrengthDifference\(history: number\[\], windowSize: number\)/);
   assert.match(page, /if \(windowSize <= 7\)/);
   assert.match(page, /const recent = history\.slice\(-3\)/);
   assert.match(page, /if \(significant\.length < 2\) return current \* 0\.20/);
   assert.match(page, /if \(dominant\.length < 2\) return current \* 0\.25/);
-  assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowSize\)/);
+  assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowMinutes\)/);
 });
 
-test("v108 keeps the app version in one source file", async () => {
+test("v109 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 108/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 109/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(layout, /FX_RATE_SPEAKER_TITLE/);
   assert.doesNotMatch(page, /<strong>v85<\/strong>/);
   assert.doesNotMatch(layout, /FX Rate Speaker v85/);
+});
+
+test("v109 uses real-time strength windows and one-minute startup backfill", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const strength = await readFile(new URL("../lib/currency-strength.ts", import.meta.url), "utf8");
+  const historyRoute = await readFile(new URL("../app/api/rates/history/route.ts", import.meta.url), "utf8");
+  assert.match(strength, /targetTimestamp = latest\.timestamp - windowMinutes \* 60/);
+  assert.match(strength, /closestDistance > STRENGTH_TARGET_TOLERANCE_SECONDS/);
+  assert.match(page, /calculateCurrencyStrength\(strengthHistories, windowMinutes\)/);
+  assert.match(page, /STRENGTH_HISTORY_STORAGE_KEY/);
+  assert.match(page, /hasFullStrengthCoverage/);
+  assert.match(page, /fetch\(`\/api\/rates\/history\?t=/);
+  assert.match(page, /historicalLast[\s\S]*liveFirst[\s\S]*ratio/);
+  assert.match(page, /<strong>\{label\}m<\/strong>/);
+  assert.match(historyRoute, /interval=1m&range=1d/);
+  assert.match(historyRoute, /derivedRates/);
+  assert.match(historyRoute, /points\.slice\(-70\)/);
 });
 
 test("v101 resets all short-term analysis history when a new run starts", async () => {
