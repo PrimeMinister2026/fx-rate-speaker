@@ -6,7 +6,7 @@ const SOURCES = [
   "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
   "https://cdn-nfs.faireconomy.media/ff_calendar_thisweek.json",
 ];
-const UPSTREAM_CACHE_MS = 5 * 60 * 1000;
+const UPSTREAM_CACHE_MS = 60 * 1000;
 const SOURCE_TIMEOUT_MS = 7_000;
 let cachedSource: SourceEvent[] | null = null;
 let cachedAt = 0;
@@ -103,7 +103,7 @@ export async function GET() {
       source: "Forex Factory weekly calendar",
       sourceUsed,
     }, {
-      headers: { "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600" },
+      headers: { "Cache-Control": "public, max-age=30, s-maxage=60, stale-while-revalidate=180" },
     });
   } catch (error) {
     console.warn("FX Rate Speaker calendar upstream failed", error);
@@ -113,3 +113,4 @@ export async function GET() {
     );
   }
 }
+

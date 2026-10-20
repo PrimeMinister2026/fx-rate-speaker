@@ -17,7 +17,14 @@ const FEEDS: FeedDefinition[] = [
   { name: "BOE", url: "https://www.bankofengland.co.uk/rss/news", defaultCurrencies: ["GBP"] },
   { name: "RBA", url: "https://www.rba.gov.au/rss/rss-cb-media-releases.xml", defaultCurrencies: ["AUD"] },
   { name: "米労働統計局", url: "https://www.bls.gov/feed/bls_latest.rss", defaultCurrencies: ["USD"] },
+  { name: "日本財務省", url: "https://www.mof.go.jp/english/news.rss", defaultCurrencies: ["JPY"] },
 ];
+
+const UPSTREAM_CACHE_MS = 60 * 1000;
+const FX_RELEVANT = /\b(FOMC|Federal Reserve|Fed|Bank of Japan|ECB|European Central Bank|Bank of England|Reserve Bank of Australia|interest rate|monetary policy|CPI|PCE|inflation|employment|payroll|unemployment|wage|GDP|ISM|PMI|retail sales|currency|foreign exchange|intervention|Treasury yield|bond yield|crude oil|geopolitical)\b|日銀|金融政策|政策金利|消費者物価|雇用|失業率|賃金|国内総生産|小売売上|為替|介入|国債利回り|原油|地政学/i;
+let cachedNews: Awaited<ReturnType<typeof fetchFeed>> | null = null;
+let cachedAt = 0;
+let cachedSourcesOk = 0;
 
 function decodeXml(value: string) {
   return value
@@ -98,6 +105,7 @@ async function fetchFeed(feed: FeedDefinition) {
       const publishedAt = Date.parse(publishedText);
       if (!title || !url || !Number.isFinite(publishedAt)) return [];
       const combined = `${title} ${description}`;
+      if (!FX_RELEVANT.test(combined)) return [];
       const level = classify(combined);
       return [{
         id: `${feed.name}:${url || title}`,
@@ -116,6 +124,11 @@ async function fetchFeed(feed: FeedDefinition) {
 }
 
 export async function GET() {
+  if (cachedNews && Date.now() - cachedAt < UPSTREAM_CACHE_MS) {
+    return NextResponse.json({ news: cachedNews, fetchedAt: cachedAt, sourcesOk: cachedSourcesOk, sourcesTotal: FEEDS.length, cache: "memory" }, {
+      headers: { "Cache-Control": "public, max-age=30, s-maxage=60, stale-while-revalidate=180" },
+    });
+  }
   const settled = await Promise.allSettled(FEEDS.map(fetchFeed));
   const news = settled
     .flatMap((result) => result.status === "fulfilled" ? result.value : [])
@@ -126,7 +139,10 @@ export async function GET() {
   if (!sourcesOk) {
     return NextResponse.json({ error: "NEWS取得元へ接続できませんでした", news: [], sourcesOk: 0 }, { status: 503 });
   }
+  cachedNews = news;
+  cachedAt = Date.now();
+  cachedSourcesOk = sourcesOk;
   return NextResponse.json({ news, fetchedAt: Date.now(), sourcesOk, sourcesTotal: FEEDS.length }, {
-    headers: { "Cache-Control": "no-store, max-age=0" },
+    headers: { "Cache-Control": "public, max-age=30, s-maxage=60, stale-while-revalidate=180" },
   });
 }

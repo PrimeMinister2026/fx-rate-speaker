@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v110<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v111<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -126,10 +126,23 @@ test("mode 4 uses key-free official feeds and isolates partial failures", async 
   assert.match(source, /bankofengland\.co\.uk\/rss\/news/);
   assert.match(source, /rba\.gov\.au\/rss\/rss-cb-media-releases\.xml/);
   assert.match(source, /bls\.gov\/feed\/bls_latest\.rss/);
+  assert.match(source, /mof\.go\.jp\/english\/news\.rss/);
+  assert.match(source, /UPSTREAM_CACHE_MS = 60 \* 1000/);
   assert.match(source, /Promise\.allSettled/);
   assert.match(source, /NEWS_L1/);
   assert.match(source, /NEWS_L2/);
   assert.match(source, /NEWS_L3/);
+});
+
+test("v111 classifies RAPID causes without future-news leakage", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const intelligence = await readFile(new URL("../lib/news-intelligence.ts", import.meta.url), "utf8");
+  assert.match(page, /findRapidCause\(pair\.code, now, recentNewsRef\.current, calendarEventsRef\.current\)/);
+  assert.match(page, /source: "CAUSE"/);
+  assert.match(page, /CAUSE \$\{cause\.confidence\}/);
+  assert.match(intelligence, /timestamp <= detectedAt/);
+  assert.match(intelligence, /CAUSE_LOOKBACK_MS = 15 \* 60 \* 1000/);
+  assert.match(intelligence, /"CONFIRMED" \| "LIKELY" \| "UNKNOWN"/);
 });
 
 test("v61 monitors all ten pairs and adds isolated economic-calendar UI", async () => {
@@ -281,15 +294,15 @@ test("v72 inline status intent is preserved by the current rate layout", async (
   assert.match(styles, /\.synthetic-badge \{[^}]*border:0[^}]*font-size:7px/);
 });
 
-test("v75 reduces Forex Factory throttling risk and keeps a fallback calendar source", async () => {
+test("v111 shares the calendar cache at the current one-minute bulletin interval", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const calendar = await readFile(new URL("../app/api/calendar/route.ts", import.meta.url), "utf8");
-  assert.match(page, /CALENDAR_POLL_INTERVAL_MS = 5 \* 60 \* 1000/);
+  assert.match(page, /CALENDAR_POLL_INTERVAL_MS = 60 \* 1000/);
   assert.match(page, /CALENDAR_STALE_MS = 15 \* 60 \* 1000/);
   assert.match(calendar, /cdn-nfs\.faireconomy\.media\/ff_calendar_thisweek\.json/);
-  assert.match(calendar, /UPSTREAM_CACHE_MS = 5 \* 60 \* 1000/);
+  assert.match(calendar, /UPSTREAM_CACHE_MS = 60 \* 1000/);
   assert.match(calendar, /cachedSource/);
-  assert.match(calendar, /stale-while-revalidate=600/);
+  assert.match(calendar, /stale-while-revalidate=180/);
 });
 
 test("v77 uses window-specific currency-strength v2.1 weighting", async () => {
@@ -317,11 +330,11 @@ test("v109 keeps repeated confirmation for short time-window display", async () 
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowMinutes\)/);
 });
 
-test("v110 keeps the app version in one source file", async () => {
+test("v111 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 110/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 111/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);

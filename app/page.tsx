@@ -35,6 +35,12 @@ import {
 } from "@/lib/synthetic";
 import { FX_RATE_SPEAKER_VERSION_LABEL } from "@/lib/version";
 import {
+  calendarResultSpeech,
+  economicSurprise,
+  findRapidCause,
+  type CauseConfidence,
+} from "@/lib/news-intelligence";
+import {
   CURRENCY_STRENGTH_WINDOWS,
   STRENGTH_CURRENCIES,
   STRENGTH_PAIR_CODES,
@@ -89,7 +95,8 @@ const BREAKOUT_LOOKBACK_SECONDS = 15 * 60;
 const BREAKOUT_RANGE_RATIO = 0.04;
 const BREAKOUT_MIN_PIPS = 0.5;
 const NEWS_POLL_INTERVAL_MS = 60 * 1000;
-const CALENDAR_POLL_INTERVAL_MS = 5 * 60 * 1000;
+const CALENDAR_POLL_INTERVAL_MS = 60 * 1000;
+const CAUSE_COOLDOWN_MS = 3 * 60 * 1000;
 const CALENDAR_STALE_MS = 15 * 60 * 1000;
 const CALENDAR_POST_EVENT_MS = 20 * 60 * 1000;
 const COMMENTARY_QUEUE_STALE_MS = 90 * 1000;
@@ -150,7 +157,7 @@ const AUDIO_EVENT_PRIORITY: Record<LeadSound, number> = {
 type CommentaryEntry = {
   id: string;
   timestamp: number;
-  source: "COMMENTARY" | "NEWS";
+  source: "COMMENTARY" | "NEWS" | "CAUSE";
   pair: string;
   kind: string;
   text: string;
@@ -160,6 +167,7 @@ type CommentaryEntry = {
   priceRelation?: string;
   headline?: string;
   url?: string;
+  confidence?: CauseConfidence;
 };
 type NewsItem = {
   id: string;
@@ -170,6 +178,7 @@ type NewsItem = {
   publishedAt: number;
   currencies: string[];
   level: NewsLevel;
+  explicitMarketCause?: boolean;
 };
 type NewsResponse = { news?: NewsItem[]; error?: string; sourcesOk?: number; sourcesTotal?: number };
 type CalendarEvent = {
@@ -791,7 +800,10 @@ function FlowDirection({ label, direction, history, requiredPoints, ready }: {
 function historyDisplayPriority(entry: CommentaryEntry) {
   if (entry.source === "COMMENTARY" && entry.level === "rapid") return 600;
   if (entry.importance === "NEWS_L3") return 500;
+  if (entry.source === "CAUSE" && entry.confidence === "CONFIRMED") return 480;
+  if (entry.source === "CAUSE" && entry.confidence === "LIKELY") return 450;
   if (entry.importance === "NEWS_L2") return 400;
+  if (entry.source === "CAUSE") return 320;
   if (entry.level === "important") return 300;
   if (entry.source === "COMMENTARY") return 200;
   return 100;
@@ -912,6 +924,9 @@ export default function Home() {
   const newsSpeechActiveRef = useRef(false);
   const pendingNewsRef = useRef<NewsItem[]>([]);
   const pendingCommentaryRef = useRef<QueuedCommentary[]>([]);
+  const recentNewsRef = useRef<NewsItem[]>([]);
+  const calendarEventsRef = useRef<CalendarEvent[]>([]);
+  const causeCooldownRef = useRef(new Map<string, number>());
   const latestMarketStatesRef = useRef<Array<{ name: string; state: MovementState; flow: FlowSnapshot }>>([]);
   const latestAcceptedRef = useRef<Record<string, boolean>>({});
   const calendarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1566,7 +1581,10 @@ export default function Home() {
       const data = await response.json() as NewsResponse;
       if (!response.ok) throw new Error(data.error || "NEWS取得失敗");
       if (runId !== runIdRef.current || audioModeRef.current !== "mode4") return;
-      const unseen = (data.news ?? [])
+      recentNewsRef.current = (data.news ?? [])
+        .filter((item) => Date.now() - item.publishedAt <= 60 * 60 * 1000)
+        .sort((left, right) => right.publishedAt - left.publishedAt);
+      const unseen = recentNewsRef.current
         .filter((item) => !seenNewsRef.current.has(item.id))
         .sort((left, right) => left.publishedAt - right.publishedAt);
       rememberNews(unseen.map((item) => item.id));
@@ -1608,8 +1626,7 @@ export default function Home() {
     const name = event.title;
     if (stage === "30") return `30分後に${name}です。`;
     if (stage === "5") return `5分後に${name}です。${event.currency}関連の急変に注意してください。`;
-    const values = [event.actual && `結果${event.actual}`, event.forecast && `予想${event.forecast}`, event.previous && `前回${event.previous}`].filter(Boolean).join("、");
-    return `${name}が発表されました。${values}。`;
+    return calendarResultSpeech(event);
   }
 
   async function pollCalendar() {
@@ -1626,7 +1643,8 @@ export default function Home() {
         return;
       }
       const now = Date.now();
-      setCalendarEvents(data.events.filter((event) => now - event.scheduledAt <= CALENDAR_POST_EVENT_MS));
+      calendarEventsRef.current = data.events.filter((event) => now - event.scheduledAt <= CALENDAR_POST_EVENT_MS);
+      setCalendarEvents(calendarEventsRef.current);
       setCalendarStatus("receiving");
 
       if (runningRef.current && audioModeRef.current === "mode4") {
@@ -1636,6 +1654,8 @@ export default function Home() {
           const stage: "30" | "5" | "result" | null = event.actual && minutes <= 0 && minutes >= -20
             ? "result" : minutes > 0 && minutes <= 5 ? "5" : minutes > 5 && minutes <= 30 ? "30" : null;
           if (!stage) return;
+          const surprise = stage === "result" ? economicSurprise(event) : null;
+          if (stage === "result" && event.level === "L2" && surprise && !surprise.meaningful) return;
           const alertKey = `${event.id}:${stage}`;
           if (calendarAlertedRef.current.has(alertKey)) return;
           calendarAlertedRef.current.add(alertKey);
@@ -1648,7 +1668,7 @@ export default function Home() {
             kind: stage === "result" ? `指標 ${event.level}` : `指標${stage}分前`,
             text: calendarSpeech(event, stage),
             level: event.level === "L3" || stage === "result" ? "important" : "normal",
-            priority: event.level === "L3" ? 48 : 38,
+            priority: stage === "result" ? (event.level === "L3" ? 120 : 110) : event.level === "L3" ? 48 : 38,
           };
           newEntries.push(entry);
         });
@@ -2248,6 +2268,7 @@ export default function Home() {
 
   function analyzeAllPairs(freshRates: RateMap, histories: Record<string, Mode2PricePoint[]>) {
     const candidates: CommentaryCandidate[] = [];
+    const causeEntries: QueuedCommentary[] = [];
     const states: Array<{ name: string; state: MovementState; flow: FlowSnapshot }> = [];
     const displayUpdates: Record<string, RateDisplayState> = {};
     const now = Date.now();
@@ -2273,6 +2294,34 @@ export default function Home() {
         history,
       );
       if (candidate) candidates.push(candidate);
+      if (audioModeRef.current === "mode4"
+        && (movement.notification === "RAPID_UP" || movement.notification === "RAPID_DOWN")) {
+        const cause = findRapidCause(pair.code, now, recentNewsRef.current, calendarEventsRef.current);
+        const causeKey = `${pair.code}:${cause.sourceId}`;
+        const lastCauseAt = causeCooldownRef.current.get(causeKey) ?? 0;
+        if (now - lastCauseAt >= CAUSE_COOLDOWN_MS) {
+          causeCooldownRef.current.set(causeKey, now);
+          causeEntries.push({
+            id: `${now}-${pair.code}-cause-${cause.sourceId}`,
+            timestamp: now,
+            source: "CAUSE",
+            pair: pair.code,
+            kind: `CAUSE ${cause.confidence}`,
+            text: `${pair.name}、${movement.notification === "RAPID_UP" ? "急騰。" : "急落。"}${cause.text}`,
+            level: cause.confidence === "UNKNOWN" ? "normal" : "important",
+            confidence: cause.confidence,
+            priority: cause.confidence === "CONFIRMED" ? 95 : cause.confidence === "LIKELY" ? 90 : 85,
+          });
+          console.info("[FX Rate Speaker rapid cause]", {
+            pair: pair.code,
+            direction: movement.notification,
+            confidence: cause.confidence,
+            source: cause.label,
+            detectedAt: new Date(now).toISOString(),
+            lookbackMinutes: 15,
+          });
+        }
+      }
       states.push({ name: pair.name, state: movement.state, flow });
       if (movement.state === "RAPID_UP" || movement.state === "RAPID_DOWN") {
         rapidDisplayRef.current[pair.code] = { state: movement.state, until: now + RAPID_DISPLAY_HOLD_MS };
@@ -2307,15 +2356,17 @@ export default function Home() {
     setRateDisplayStates((current) => ({ ...current, ...displayUpdates }));
     if (audioModeRef.current !== "mode3" && audioModeRef.current !== "mode4") return;
     const selectedCommentary = chooseCommentary(candidates, states, Date.now());
-    if (!selectedCommentary) return;
-    const priority = candidates.find((candidate) =>
+    if (!selectedCommentary && !causeEntries.length) return;
+    const priority = selectedCommentary ? candidates.find((candidate) =>
       selectedCommentary.id.includes(candidate.eventKey) && selectedCommentary.pair === candidate.pair,
-    )?.priority ?? 20;
+    )?.priority ?? 20 : 0;
     pendingCommentaryRef.current = [
       ...pendingCommentaryRef.current,
-      { ...selectedCommentary, priority },
-    ].sort((left, right) => right.priority - left.priority || right.timestamp - left.timestamp).slice(0, 6);
-    addCommentaryHistory(selectedCommentary);
+      ...(selectedCommentary ? [{ ...selectedCommentary, priority }] : []),
+      ...causeEntries,
+    ].sort((left, right) => right.priority - left.priority || right.timestamp - left.timestamp).slice(0, 8);
+    if (selectedCommentary) addCommentaryHistory(selectedCommentary);
+    causeEntries.forEach(addCommentaryHistory);
   }
 
   async function refreshGraphRates(runId: number) {
