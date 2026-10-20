@@ -2552,6 +2552,8 @@ export default function Home() {
         pendingNewsRef.current = pendingNewsRef.current.filter((item) => Date.now() - item.publishedAt <= 5 * 60 * 1000);
       }
       const pendingNews = audioModeRef.current === "mode4" ? pendingNewsRef.current.splice(0, 2) : [];
+      const criticalNews = pendingNews.filter((item) => item.level === "NEWS_L3");
+      const otherNews = pendingNews.filter((item) => item.level !== "NEWS_L3");
       if (soundOnRef.current && readable.length) {
         try {
           setStatus("読み上げ中");
@@ -2573,9 +2575,8 @@ export default function Home() {
               await playSpeech(commentary.text, runId);
               await wait(120);
             };
-            if (commentary?.level === "rapid") await speakCommentary();
-            for (const news of pendingNews) {
-              if (audioModeRef.current !== "mode4" || runId !== runIdRef.current || !soundOnRef.current) break;
+            const speakNews = async (news: NewsItem) => {
+              if (audioModeRef.current !== "mode4" || runId !== runIdRef.current || !soundOnRef.current) return;
               newsSpeechActiveRef.current = true;
               try {
                 const text = newsSpeechText(news);
@@ -2586,8 +2587,16 @@ export default function Home() {
               } finally {
                 newsSpeechActiveRef.current = false;
               }
+            };
+            for (const news of criticalNews) {
+              await speakNews(news);
             }
-            if (commentary?.level !== "rapid") await speakCommentary();
+            const criticalIndicator = commentary?.kind.startsWith("指標") && commentary.priority >= 110;
+            if (criticalIndicator || commentary?.level === "rapid" || commentary?.source === "CAUSE") await speakCommentary();
+            for (const news of otherNews) {
+              await speakNews(news);
+            }
+            if (commentary && !criticalIndicator && commentary.level !== "rapid" && commentary.source !== "CAUSE") await speakCommentary();
             await playStartChime(runId);
             for (const item of sequence) {
               if (runId !== runIdRef.current || !soundOnRef.current) break;
