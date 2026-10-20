@@ -128,9 +128,10 @@ button.chosen { border-color:var(--gold); background:#392d0c; color:#fff1b2; box
 .rate-row.rapid { border-color:#332e1e; }
 .rate-row.selected.rapid { border-color:var(--gold); box-shadow:inset 3px 0 0 var(--gold-bright),0 0 12px #e5a92c2b; }
 .rate-row.error { border-color:#332e1e; }
-.rate-row.state-up_trend { background:linear-gradient(145deg,#153023aa,#0a110d); }
-.rate-row.state-down_trend { background:linear-gradient(145deg,#32191daa,#120a0c); }
-.rate-row.state-rapid_up,.rate-row.state-rapid_down { background:linear-gradient(145deg,#12120e,#0a0a08); }
+.rate-row.state-up_trend { background:linear-gradient(145deg,#205a3b 0%,#163925 52%,#0b1710 100%); }
+.rate-row.state-down_trend { background:linear-gradient(145deg,#642733 0%,#421a22 52%,#1b0d10 100%); }
+.rate-row.state-rapid_up { background:linear-gradient(145deg,#205a3b 0%,#163925 52%,#0b1710 100%); }
+.rate-row.state-rapid_down { background:linear-gradient(145deg,#642733 0%,#421a22 52%,#1b0d10 100%); }
 .rate-row.state-rapid_up .pair-pill > span { animation:pair-pill-rapid-up .76s steps(1,end) infinite; }
 .rate-row.state-rapid_down .pair-pill > span { animation:pair-pill-rapid-down .76s steps(1,end) infinite; }
 @keyframes pair-pill-rapid-up { 0%,48% { background:var(--pill-color); color:#fff; } 49%,100% { background:#fff; color:var(--pill-color); text-shadow:none; } }

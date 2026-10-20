@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v111<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v112<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -330,17 +330,28 @@ test("v109 keeps repeated confirmation for short time-window display", async () 
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowMinutes\)/);
 });
 
-test("v111 keeps the app version in one source file", async () => {
+test("v112 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 111/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 112/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(layout, /FX_RATE_SPEAKER_TITLE/);
   assert.doesNotMatch(page, /<strong>v85<\/strong>/);
   assert.doesNotMatch(layout, /FX Rate Speaker v85/);
+});
+
+test("v112 restores readable TREND backgrounds without panel flashing", async () => {
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(styles, /\.rate-row\.state-up_trend \{ background:linear-gradient\(145deg,#205a3b/);
+  assert.match(styles, /\.rate-row\.state-down_trend \{ background:linear-gradient\(145deg,#642733/);
+  assert.match(styles, /\.rate-row\.state-rapid_up \{ background:linear-gradient\(145deg,#205a3b/);
+  assert.match(styles, /\.rate-row\.state-rapid_down \{ background:linear-gradient\(145deg,#642733/);
+  assert.match(styles, /\.rate-row\.state-rapid_up \.pair-pill > span \{ animation:pair-pill-rapid-up/);
+  assert.match(styles, /\.volatility-badge\.v4,\.volatility-badge\.v5 \{ animation:volatility-badge-flash/);
+  assert.doesNotMatch(styles, /rapid-up-panel-flash|rapid-down-panel-flash/);
 });
 
 test("v109 uses real-time strength windows and one-minute startup backfill", async () => {
