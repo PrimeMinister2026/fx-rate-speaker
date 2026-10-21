@@ -35,6 +35,13 @@ import {
 } from "@/lib/synthetic";
 import { FX_RATE_SPEAKER_VERSION_LABEL } from "@/lib/version";
 import {
+  calculatePositionPips,
+  positionPipsSpeech,
+  restorePositions,
+  type PositionMap,
+  type PositionSide,
+} from "@/lib/positions";
+import {
   calendarResultSpeech,
   economicSurprise,
   findRapidCause,
@@ -332,6 +339,7 @@ const MARKET_PROVERBS = [
 ];
 
 const AUDIO_MODE_STORAGE_KEY = "fx-rate-speaker-audio-mode";
+const POSITIONS_STORAGE_KEY = "fx-rate-speaker-positions-v1";
 
 function spokenPrice(price: number, yen: boolean) {
   return price.toFixed(yen ? 3 : 5);
@@ -880,6 +888,9 @@ export default function Home() {
   const selectedRef = useRef<string[]>(["USD/JPY"]);
   const [intervalSeconds, setIntervalSeconds] = useState(30);
   const [rates, setRates] = useState<RateMap>({});
+  const [positions, setPositions] = useState<PositionMap>({});
+  const positionsRef = useRef<PositionMap>({});
+  const [positionEditor, setPositionEditor] = useState<{ pair: string; side: PositionSide; entryPrice: string } | null>(null);
   const [rateSources, setRateSources] = useState<Record<string, RateSource>>({});
   const [oandaStatus, setOandaStatus] = useState<"checking" | "connected" | "unconfigured" | "error" | "fallback">("checking");
   const [errors, setErrors] = useState<Record<string, boolean>>({});
@@ -1101,6 +1112,43 @@ export default function Home() {
     } catch {
       // The selected mode still works for this session when storage is unavailable.
     }
+  }
+
+  function openPositionEditor(pair: string) {
+    const existing = positionsRef.current[pair];
+    setPositionEditor({
+      pair,
+      side: existing?.side ?? "BUY",
+      entryPrice: existing ? String(existing.entryPrice) : ratesRef.current[pair]?.price ? String(ratesRef.current[pair].price) : "",
+    });
+  }
+
+  function persistPositions(next: PositionMap) {
+    positionsRef.current = next;
+    setPositions(next);
+    try {
+      window.localStorage.setItem(POSITIONS_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Positions remain available for this session when persistent storage is unavailable.
+    }
+  }
+
+  function savePosition() {
+    if (!positionEditor) return;
+    const entryPrice = Number(positionEditor.entryPrice);
+    if (!Number.isFinite(entryPrice) || entryPrice <= 0) return;
+    persistPositions({
+      ...positionsRef.current,
+      [positionEditor.pair]: { pair: positionEditor.pair, side: positionEditor.side, entryPrice },
+    });
+    setPositionEditor(null);
+  }
+
+  function clearPosition(pair: string) {
+    const next = { ...positionsRef.current };
+    delete next[pair];
+    persistPositions(next);
+    setPositionEditor(null);
   }
 
   function wait(milliseconds: number) {
@@ -1736,6 +1784,12 @@ export default function Home() {
         const restored = restoreAudioMode(saved);
         setAudioMode(restored);
         audioModeRef.current = restored;
+        const restoredPositions = restorePositions(
+          window.localStorage.getItem(POSITIONS_STORAGE_KEY),
+          PAIRS.map((pair) => pair.code),
+        );
+        positionsRef.current = restoredPositions;
+        setPositions(restoredPositions);
         const seen = JSON.parse(window.localStorage.getItem(NEWS_SEEN_STORAGE_KEY) ?? "[]") as string[];
         seenNewsRef.current = new Set(seen.slice(-200));
         const shadow = JSON.parse(window.localStorage.getItem(OANDA_SHADOW_STORAGE_KEY) ?? "[]") as OandaShadowRecord[];
@@ -2559,6 +2613,9 @@ export default function Home() {
           mode2Frequencies,
           movementState,
           price: spokenPrice(current, pair.yen),
+          positionSpeech: positionsRef.current[code]
+            ? positionPipsSpeech(calculatePositionPips(positionsRef.current[code], current, pair.yen))
+            : null,
           flow: flowSnapshot(nextSparklineHistories[code] ?? [], direction),
         };
       });
@@ -2578,7 +2635,7 @@ export default function Home() {
           await enqueueAudio(async () => {
             if (runId !== runIdRef.current || !soundOnRef.current) return;
             await Promise.all([
-              ...sequence.flatMap((item) => [getSpeechUrl(item.name), getSpeechUrl(item.price)]),
+              ...sequence.flatMap((item) => [getSpeechUrl(item.name), getSpeechUrl(item.price), ...(item.positionSpeech ? [getSpeechUrl(item.positionSpeech)] : [])]),
               ...(commentary ? [getSpeechUrl(commentary.text)] : []),
               ...pendingNews.map((item) => getSpeechUrl(newsSpeechText(item))),
             ]);
@@ -2628,6 +2685,7 @@ export default function Home() {
                 await playRateCue(item.cue, runId);
               }
               await playSpeech(item.price, runId);
+              if (item.positionSpeech) await playSpeech(item.positionSpeech, runId);
               await wait(75);
               latestAcceptedRef.current[item.code] = false;
             }
@@ -2974,6 +3032,10 @@ export default function Home() {
               const volatility = shortVolatilityLevel(history, pipSize);
               const recentPastRates = previousGraphGridRates(history, currentTime);
               const npYen = visibleRate ? normalizedPipValue(visibleRate.price, pipSize) : null;
+              const position = positions[pair.code];
+              const positionPips = position && visibleRate
+                ? calculatePositionPips(position, visibleRate.price, pair.yen)
+                : null;
               return (
                 <article className={`rate-row state-${movement.toLowerCase()} volatility-v${volatility} ${volatility >= 4 ? "volatility-high" : ""} ${selected.includes(pair.code) ? "selected" : ""} ${displayFailed ? "error" : ""} ${rapid ? "rapid" : ""}`} key={pair.code}
                   onClick={() => togglePair(pair.code)} aria-pressed={selected.includes(pair.code)}
@@ -2986,6 +3048,12 @@ export default function Home() {
                       <time>{visibleRate && !displayFailed ? new Date(visibleRate.timestamp * 1000).toLocaleTimeString("ja-JP", { hour12: false }) : "--:--:--"}</time>
                       <span className={`volatility-badge v${volatility}`} title={`短期ボラティリティ V${volatility}`}>V{volatility}</span>
                     </div>
+                    <button type="button" className={`position-brief ${position ? "active" : "empty"}`}
+                      onClick={(event) => { event.stopPropagation(); openPositionEditor(pair.code); }}
+                      onKeyDown={(event) => event.stopPropagation()}
+                      title={position ? `${position.side} ${displayPrice(position.entryPrice, pair.yen)}を編集` : `${pair.code}のポジションを設定`}>
+                      {position ? <><b>{position.side}</b><span>{displayPrice(position.entryPrice, pair.yen)}</span><em className={positionPips === null || positionPips === 0 ? "flat" : positionPips > 0 ? "profit" : "loss"}>{positionPips === null ? "--" : `${positionPips > 0 ? "+" : ""}${positionPips.toFixed(1)}`}</em></> : "POS"}
+                    </button>
                   </div>
                   <div className="spark-slot">
                     <Sparkline history={history} movement={movement} direction={chartDirection} />
@@ -3126,6 +3194,35 @@ export default function Home() {
               <button className="notice-done" type="button" onClick={() => setMarketNoticeAdminOpen(false)}>完了</button>
             </footer>
           </section>
+        </div>
+      )}
+      {positionEditor && (
+        <div className="position-editor-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.currentTarget === event.target) setPositionEditor(null);
+        }}>
+          <form className="position-editor" role="dialog" aria-modal="true" aria-labelledby="position-editor-title"
+            onSubmit={(event) => { event.preventDefault(); savePosition(); }}>
+            <header>
+              <div><p>POSITION</p><h2 id="position-editor-title">保有ポジション</h2></div>
+              <button type="button" onClick={() => setPositionEditor(null)} aria-label="閉じる">×</button>
+            </header>
+            <label><span>通貨ペア</span><select value={positionEditor.pair} onChange={(event) => {
+              const pair = event.target.value;
+              const existing = positionsRef.current[pair];
+              setPositionEditor({ pair, side: existing?.side ?? "BUY", entryPrice: existing ? String(existing.entryPrice) : ratesRef.current[pair]?.price ? String(ratesRef.current[pair].price) : "" });
+            }}>{PAIRS.map((pair) => <option key={pair.code} value={pair.code}>{pair.code}</option>)}</select></label>
+            <div className="position-side" role="group" aria-label="売買方向">
+              {(["BUY", "SELL"] as const).map((side) => <button type="button" key={side} className={positionEditor.side === side ? `chosen ${side.toLowerCase()}` : side.toLowerCase()}
+                onClick={() => setPositionEditor((current) => current ? { ...current, side } : current)}>{side}</button>)}
+            </div>
+            <label><span>建値</span><input type="number" min="0" step="0.00001" inputMode="decimal" required autoFocus
+              value={positionEditor.entryPrice} onChange={(event) => setPositionEditor((current) => current ? { ...current, entryPrice: event.target.value } : current)} /></label>
+            <footer>
+              {positions[positionEditor.pair] && <button className="position-clear" type="button" onClick={() => clearPosition(positionEditor.pair)}>解除</button>}
+              <button type="button" onClick={() => setPositionEditor(null)}>キャンセル</button>
+              <button className="position-save" type="submit">設定</button>
+            </footer>
+          </form>
         </div>
       )}
     </main>

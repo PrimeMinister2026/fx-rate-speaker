@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v113<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v114<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -242,7 +242,7 @@ test("v67 keeps title, rates and multi-label history readable", async () => {
   assert.match(page, /<h1>FXレート読み上げ<\/h1>/);
   assert.doesNotMatch(page, /<h1><span>FXレート<\/span><span>読み上げ<\/span><\/h1>/);
   assert.match(styles, /\.control-clock \{[^}]*width:100%;[^}]*clamp\(13px,1\.12vw,17px\)/);
-  assert.match(styles, /\.rate-row \{[^}]*minmax\(138px,1\.92fr\)[^}]*minmax\(122px,\.88fr\)[^}]*minmax\(70px,\.54fr\)/);
+  assert.match(styles, /\.rate-row \{[^}]*minmax\(94px,\.68fr\)[^}]*minmax\(124px,1\.82fr\)[^}]*minmax\(122px,\.88fr\)[^}]*minmax\(70px,\.54fr\)/);
   assert.match(styles, /\.rate-value \{[^}]*padding:0 2px 0 0[^}]*clamp\(24px,1\.95vw,28px\)/);
   assert.doesNotMatch(page, /className="rate-status-slot"/);
   assert.match(styles, /@keyframes pair-pill-rapid-up/);
@@ -338,11 +338,29 @@ test("v109 keeps repeated confirmation for short time-window display", async () 
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowMinutes\)/);
 });
 
-test("v113 keeps the app version in one source file", async () => {
+test("v114 stores compact positions and appends their P/L speech in both audio modes", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(page, /POSITIONS_STORAGE_KEY = "fx-rate-speaker-positions-v1"/);
+  assert.match(page, /const \[positions, setPositions\] = useState<PositionMap>/);
+  assert.match(page, /restorePositions\([\s\S]*window\.localStorage\.getItem\(POSITIONS_STORAGE_KEY\)/);
+  assert.match(page, /window\.localStorage\.setItem\(POSITIONS_STORAGE_KEY, JSON\.stringify\(next\)\)/);
+  assert.match(page, /positionSpeech: positionsRef\.current\[code\]/);
+  assert.match(page, /if \(item\.positionSpeech\) await playSpeech\(item\.positionSpeech, runId\)/);
+  assert.match(page, /className=\{`position-brief/);
+  assert.match(page, /className="position-editor"/);
+  assert.match(page, />解除<\/button>/);
+  assert.match(styles, /\.position-brief \{/);
+  assert.match(styles, /\.position-brief em\.profit \{ color:#72e6a3/);
+  assert.match(styles, /\.position-brief em\.loss \{ color:#ff7e8d/);
+  assert.match(page, /mode4: Object\.freeze\([\s\S]*mode5: Object\.freeze/);
+});
+
+test("v114 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 113/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 114/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
