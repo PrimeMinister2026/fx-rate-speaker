@@ -143,7 +143,25 @@ type RateResponse = { rates?: RateMap; syntheticSources?: RateMap; syntheticActu
 type StrengthHistoryResponse = { histories?: Record<string, Mode2PricePoint[]>; fetchedAt?: number; source?: string; error?: string };
 type Direction = "up" | "down" | "unchanged";
 type PlaybackCue = Direction | MovementNotification;
-type AudioMode = "mode2" | "mode3" | "mode4";
+type AudioMode = "mode4" | "mode5";
+type AudioModeFeatures = {
+  commentary: boolean;
+  news: boolean;
+  calendarAlerts: boolean;
+  rapidCauses: boolean;
+};
+const AUDIO_MODE_FEATURES: Readonly<Record<AudioMode, Readonly<AudioModeFeatures>>> = Object.freeze({
+  mode4: Object.freeze({ commentary: true, news: true, calendarAlerts: true, rapidCauses: true }),
+  mode5: Object.freeze({ commentary: true, news: true, calendarAlerts: true, rapidCauses: true }),
+});
+
+function audioModeFeatures(mode: AudioMode) {
+  return AUDIO_MODE_FEATURES[mode];
+}
+
+function restoreAudioMode(saved: string | null): AudioMode {
+  return saved === "mode5" ? "mode5" : "mode4";
+}
 type CommentaryLevel = "normal" | "important" | "rapid";
 type NewsLevel = "NEWS_L1" | "NEWS_L2" | "NEWS_L3";
 type LeadSound = "NONE" | "PRICE_RAPID" | NewsLevel;
@@ -868,8 +886,8 @@ export default function Home() {
   const [running, setRunning] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
   const soundOnRef = useRef(true);
-  const [audioMode, setAudioMode] = useState<AudioMode>("mode3");
-  const audioModeRef = useRef<AudioMode>("mode3");
+  const [audioMode, setAudioMode] = useState<AudioMode>("mode4");
+  const audioModeRef = useRef<AudioMode>("mode4");
   const [commentaryHistory, setCommentaryHistory] = useState<CommentaryEntry[]>([]);
   const [newsStatus, setNewsStatus] = useState<"idle" | "receiving" | "error">("idle");
   const [calendarStatus, setCalendarStatus] = useState<"idle" | "receiving" | "error" | "stale">("idle");
@@ -1056,7 +1074,7 @@ export default function Home() {
   }
 
   function applyAudioMode(next: AudioMode) {
-    const leavingNews = audioModeRef.current === "mode4" && next !== "mode4";
+    const leavingNews = audioModeFeatures(audioModeRef.current).news && !audioModeFeatures(next).news;
     setAudioMode(next);
     audioModeRef.current = next;
     if (leavingNews) {
@@ -1572,7 +1590,7 @@ export default function Home() {
   }
 
   async function pollNews(runId: number) {
-    if (runId !== runIdRef.current || !runningRef.current || audioModeRef.current !== "mode4") return;
+    if (runId !== runIdRef.current || !runningRef.current || !audioModeFeatures(audioModeRef.current).news) return;
     const controller = new AbortController();
     newsAbortRef.current = controller;
     try {
@@ -1580,7 +1598,7 @@ export default function Home() {
       const response = await fetch(`/api/news?t=${Date.now()}`, { cache: "no-store", signal: controller.signal });
       const data = await response.json() as NewsResponse;
       if (!response.ok) throw new Error(data.error || "NEWS取得失敗");
-      if (runId !== runIdRef.current || audioModeRef.current !== "mode4") return;
+      if (runId !== runIdRef.current || !audioModeFeatures(audioModeRef.current).news) return;
       recentNewsRef.current = (data.news ?? [])
         .filter((item) => Date.now() - item.publishedAt <= 60 * 60 * 1000)
         .sort((left, right) => right.publishedAt - left.publishedAt);
@@ -1610,13 +1628,13 @@ export default function Home() {
       }
       setNewsStatus("receiving");
     } catch (error) {
-      if (!controller.signal.aborted && runId === runIdRef.current && audioModeRef.current === "mode4") {
+      if (!controller.signal.aborted && runId === runIdRef.current && audioModeFeatures(audioModeRef.current).news) {
         console.warn("FX Rate Speaker NEWS fetch failed", error);
         setNewsStatus("error");
       }
     } finally {
       if (newsAbortRef.current === controller) newsAbortRef.current = null;
-      if (runId === runIdRef.current && runningRef.current && audioModeRef.current === "mode4") {
+      if (runId === runIdRef.current && runningRef.current && audioModeFeatures(audioModeRef.current).news) {
         newsTimerRef.current = window.setTimeout(() => { void pollNews(runId); }, NEWS_POLL_INTERVAL_MS);
       }
     }
@@ -1647,7 +1665,7 @@ export default function Home() {
       setCalendarEvents(calendarEventsRef.current);
       setCalendarStatus("receiving");
 
-      if (runningRef.current && audioModeRef.current === "mode4") {
+      if (runningRef.current && audioModeFeatures(audioModeRef.current).calendarAlerts) {
         const newEntries: QueuedCommentary[] = [];
         data.events.forEach((event) => {
           const minutes = (event.scheduledAt - now) / 60_000;
@@ -1690,7 +1708,7 @@ export default function Home() {
   }
 
   useEffect(() => {
-    if (!running || audioMode !== "mode4") return;
+    if (!running || !audioModeFeatures(audioMode).news) return;
     const runId = runIdRef.current;
     void pollNews(runId);
     return () => {
@@ -1715,7 +1733,7 @@ export default function Home() {
     const restoreTimer = window.setTimeout(() => {
       try {
         const saved = window.localStorage.getItem(AUDIO_MODE_STORAGE_KEY);
-        const restored: AudioMode = saved === "mode2" || saved === "mode4" ? saved : "mode3";
+        const restored = restoreAudioMode(saved);
         setAudioMode(restored);
         audioModeRef.current = restored;
         const seen = JSON.parse(window.localStorage.getItem(NEWS_SEEN_STORAGE_KEY) ?? "[]") as string[];
@@ -1732,7 +1750,7 @@ export default function Home() {
         }));
         setSyntheticStatuses(Object.fromEntries(SYNTHETIC_SYMBOLS.map((symbol) => [symbol, syntheticLearningRef.current[symbol].status])));
       } catch {
-        // Keep mode 3 as the default when storage is unavailable.
+        // Keep stable mode 4 as the default when storage is unavailable.
       }
     }, 0);
     return () => window.clearTimeout(restoreTimer);
@@ -2294,7 +2312,7 @@ export default function Home() {
         history,
       );
       if (candidate) candidates.push(candidate);
-      if (audioModeRef.current === "mode4"
+      if (audioModeFeatures(audioModeRef.current).rapidCauses
         && (movement.notification === "RAPID_UP" || movement.notification === "RAPID_DOWN")) {
         const cause = findRapidCause(pair.code, now, recentNewsRef.current, calendarEventsRef.current);
         const causeKey = `${pair.code}:${cause.sourceId}`;
@@ -2354,7 +2372,7 @@ export default function Home() {
     }
     latestMarketStatesRef.current = states;
     setRateDisplayStates((current) => ({ ...current, ...displayUpdates }));
-    if (audioModeRef.current !== "mode3" && audioModeRef.current !== "mode4") return;
+    if (!audioModeFeatures(audioModeRef.current).commentary) return;
     const selectedCommentary = chooseCommentary(candidates, states, Date.now());
     if (!selectedCommentary && !causeEntries.length) return;
     const priority = selectedCommentary ? candidates.find((candidate) =>
@@ -2544,14 +2562,14 @@ export default function Home() {
           flow: flowSnapshot(nextSparklineHistories[code] ?? [], direction),
         };
       });
-      const commentary = audioModeRef.current === "mode3" || audioModeRef.current === "mode4"
+      const commentary = audioModeFeatures(audioModeRef.current).commentary
         ? pendingCommentaryRef.current.filter((item) => Date.now() - item.timestamp <= COMMENTARY_QUEUE_STALE_MS).shift() ?? null
         : null;
       if (commentary) pendingCommentaryRef.current = pendingCommentaryRef.current.filter((item) => item.id !== commentary.id);
-      if (audioModeRef.current === "mode4") {
+      if (audioModeFeatures(audioModeRef.current).news) {
         pendingNewsRef.current = pendingNewsRef.current.filter((item) => Date.now() - item.publishedAt <= 5 * 60 * 1000);
       }
-      const pendingNews = audioModeRef.current === "mode4" ? pendingNewsRef.current.splice(0, 2) : [];
+      const pendingNews = audioModeFeatures(audioModeRef.current).news ? pendingNewsRef.current.splice(0, 2) : [];
       const criticalNews = pendingNews.filter((item) => item.level === "NEWS_L3");
       const otherNews = pendingNews.filter((item) => item.level !== "NEWS_L3");
       if (soundOnRef.current && readable.length) {
@@ -2576,7 +2594,7 @@ export default function Home() {
               await wait(120);
             };
             const speakNews = async (news: NewsItem) => {
-              if (audioModeRef.current !== "mode4" || runId !== runIdRef.current || !soundOnRef.current) return;
+              if (!audioModeFeatures(audioModeRef.current).news || runId !== runIdRef.current || !soundOnRef.current) return;
               newsSpeechActiveRef.current = true;
               try {
                 const text = newsSpeechText(news);
@@ -2892,9 +2910,8 @@ export default function Home() {
             <div className="setting-box">
               <span>モード</span>
               <div className="mode-buttons" role="group" aria-label="音モード">
-                <button className={audioMode === "mode2" ? "chosen" : ""} onClick={() => applyAudioMode("mode2")}>2</button>
-                <button className={audioMode === "mode3" ? "chosen radio-mode" : "radio-mode"} onClick={() => applyAudioMode("mode3")}>3 実況</button>
-                <button className={audioMode === "mode4" ? "chosen news-mode" : "news-mode"} onClick={() => applyAudioMode("mode4")}>4 NEWS</button>
+                <button className={audioMode === "mode4" ? "chosen news-mode" : "news-mode"} onClick={() => applyAudioMode("mode4")}>4</button>
+                <button className={audioMode === "mode5" ? "chosen news-mode" : "news-mode"} onClick={() => applyAudioMode("mode5")}>5</button>
               </div>
             </div>
             <div className="setting-box">
@@ -3004,7 +3021,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section className={`radio-column panel ${audioMode === "mode3" || audioMode === "mode4" ? "enabled" : ""}`} aria-live="polite">
+        <section className={`radio-column panel ${audioModeFeatures(audioMode).commentary ? "enabled" : ""}`} aria-live="polite">
           <div className="latest-zone">
             {latestCommentary ? (
               <article className={`latest-commentary ${latestCommentary.level} ${latestCommentary.source.toLowerCase()}`}>
@@ -3019,11 +3036,7 @@ export default function Home() {
             ) : (
               <div className="latest-empty">
                 <strong>実況待機中</strong>
-                <p>{audioMode === "mode4"
-                  ? `市場実況と公式NEWSを監視しています。${newsStatus === "error" ? " NEWS ERROR" : ""}`
-                  : audioMode === "mode3"
-                    ? "市場イベントを監視しています。定期実況は開始から5分後です。"
-                    : "モード3または4を選ぶと実況を開始します。"}</p>
+                <p>市場実況と公式NEWSを監視しています。{newsStatus === "error" ? " NEWS ERROR" : ""}</p>
               </div>
             )}
           </div>
@@ -3043,17 +3056,12 @@ export default function Home() {
                 </article>
               ))}
               {!visibleCommentaryHistory.length && <p className="history-empty">実況履歴はまだありません。</p>}
-              {audioMode === "mode4" ? (
+              {audioModeFeatures(audioMode).news ? (
                 <article className={`history-row news news-receiver ${newsStatus === "error" ? "error" : ""}`}>
                   <div className="history-meta"><time>--:--</time><span className="feed-kind">NEWS 1–3</span><strong>{newsStatus === "error" ? "NEWS ERROR" : "公式RSS受信中"}</strong></div>
                   <div className="feed-text"><p>{newsStatus === "error" ? "NEWSのみ再試行します。レートと相場実況は継続します。" : "FRB・日銀・ECB・BOE・RBA・米労働統計を60秒間隔で確認します。"}</p></div>
                 </article>
-              ) : (
-                <article className="history-row news news-receiver">
-                  <div className="history-meta"><time>--:--</time><span className="feed-kind">NEWS OFF</span><strong>モード4専用</strong></div>
-                  <div className="feed-text"><p>モード2・3ではNEWS通信・表示・読み上げを行いません。</p></div>
-                </article>
-              )}
+              ) : null}
             </div>
           </div>
           <div className="calendar-zone">

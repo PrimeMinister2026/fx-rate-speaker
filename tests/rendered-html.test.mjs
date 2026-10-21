@@ -32,14 +32,18 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v112<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v113<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
 
-test("v67 keeps modes 2, 3 and 4 NEWS audio", async () => {
+test("v113 exposes only modes 4 and 5 with the same stable feature set", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(source, /type AudioMode = "mode2" \| "mode3" \| "mode4"/);
+  assert.match(source, /type AudioMode = "mode4" \| "mode5"/);
+  assert.match(source, /mode4: Object\.freeze\(\{ commentary: true, news: true, calendarAlerts: true, rapidCauses: true \}\)/);
+  assert.match(source, /mode5: Object\.freeze\(\{ commentary: true, news: true, calendarAlerts: true, rapidCauses: true \}\)/);
+  assert.match(source, /function audioModeFeatures\(mode: AudioMode\)/);
+  assert.match(source, /function restoreAudioMode\(saved: string \| null\): AudioMode \{[\s\S]*saved === "mode5" \? "mode5" : "mode4"/);
   assert.match(source, /type NewsLevel = "NEWS_L1" \| "NEWS_L2" \| "NEWS_L3"/);
   assert.match(source, /PRICE_RAPID: 60,[\s\S]*NEWS_L3: 50,[\s\S]*NEWS_L2: 40,[\s\S]*NEWS_L1: 30/);
   assert.match(source, /async function playNewsAlert/);
@@ -47,18 +51,22 @@ test("v67 keeps modes 2, 3 and 4 NEWS audio", async () => {
   assert.match(source, /\[987\.77, 1975\.54\][\s\S]*\[659\.25, 1318\.5\]/);
   assert.match(source, /commentary\.source === "NEWS"[\s\S]*"PRICE_RAPID"/);
   assert.match(source, /<strong>\{FX_RATE_SPEAKER_VERSION_LABEL\}<\/strong>/);
-  assert.match(source, />4 NEWS<\/button>/);
-  assert.match(source, /audioModeRef\.current !== "mode4"/);
+  assert.match(source, /applyAudioMode\("mode4"\)\}>4<\/button>/);
+  assert.match(source, /applyAudioMode\("mode5"\)\}>5<\/button>/);
+  assert.doesNotMatch(source, /applyAudioMode\("mode2"\)|applyAudioMode\("mode3"\)/);
+  assert.match(source, /window\.localStorage\.setItem\(AUDIO_MODE_STORAGE_KEY, next\)/);
+  assert.match(source, /const restored = restoreAudioMode\(saved\)/);
+  assert.match(source, /audioModeFeatures\(audioModeRef\.current\)\.news/);
   assert.match(source, /NEWS_POLL_INTERVAL_MS = 60 \* 1000/);
   assert.match(source, /item\.level !== "NEWS_L1"/);
   assert.doesNotMatch(source, /function movementSymbol|function movementLabel/);
 });
 
-test("v60 still defaults to mode 3 and renders clickable 30-point retained-history sparklines", async () => {
+test("v113 defaults safely to mode 4 and renders clickable 30-point retained-history sparklines", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(source, /useState<AudioMode>\("mode3"\)/);
-  assert.match(source, /saved === "mode2" \|\| saved === "mode4" \? saved : "mode3"/);
+  assert.match(source, /useState<AudioMode>\("mode4"\)/);
+  assert.match(source, /return saved === "mode5" \? "mode5" : "mode4"/);
   assert.match(source, /function Sparkline/);
   assert.match(source, /SPARKLINE_DISPLAY_POINT_COUNT = 30/);
   assert.match(source, /SPARKLINE_HISTORY_POINT_COUNT = 60/);
@@ -330,11 +338,11 @@ test("v109 keeps repeated confirmation for short time-window display", async () 
   assert.match(page, /trendAwareStrengthDifference\(nextHistory, windowMinutes\)/);
 });
 
-test("v112 keeps the app version in one source file", async () => {
+test("v113 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 112/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 113/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
