@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   analyzeMode5Rapid,
-  buildMode5Frequencies,
+  buildMode5ToneCues,
   mode5AudioWindows,
   sampleThirtyMinuteGraph,
   threeMinuteGridLines,
@@ -24,7 +24,22 @@ test("audio windows are ordered 5m, 3m, 1m and use timestamps rather than indexe
   assert.ok(windows.every((window) => window.ready));
   assert.ok(windows.every((window) => window.direction === "up"));
   assert.ok(windows.every((window) => Math.abs((window.endTimestamp - window.startTimestamp) - window.minutes * 60) <= 45));
-  assert.equal(buildMode5Frequencies(withGap, 0.01).length, 3);
+  const cues = buildMode5ToneCues(withGap, 0.01);
+  assert.deepEqual(cues.map((cue) => cue.minutes), [5, 3, 1]);
+  assert.ok(cues.every((cue) => cue.direction === "up"));
+  assert.ok(cues.every((cue) => cue.frequencies[0] < cue.frequencies[1]));
+});
+
+test("mode 5 uses symmetric two-note direction cues and widens strong moves", () => {
+  const flat = seriesFromChanges(Array(150).fill(0));
+  const normal = seriesFromChanges(Array.from({ length: 150 }, (_, index) => index % 4 === 0 ? -0.15 : 0.25));
+  const strong = seriesFromChanges(Array(150).fill(0.8));
+  const flatCues = buildMode5ToneCues(flat, 0.01);
+  const normalCue = buildMode5ToneCues(normal, 0.01).at(-1);
+  const strongCue = buildMode5ToneCues(strong, 0.01).at(-1);
+  assert.ok(flatCues.every((cue) => cue.direction === "unchanged" && cue.frequencies[0] === cue.frequencies[1]));
+  assert.ok(normalCue && strongCue);
+  assert.ok(strongCue.frequencies[1] / strongCue.frequencies[0] > normalCue.frequencies[1] / normalCue.frequencies[0]);
 });
 
 test("small countertrend moves do not become rapid", () => {

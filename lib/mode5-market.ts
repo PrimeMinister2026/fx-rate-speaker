@@ -26,6 +26,13 @@ export type TimeWindowSnapshot = {
   endTimestamp: number | null;
 };
 
+export type Mode5ToneCue = {
+  minutes: 5 | 3 | 1;
+  direction: WindowDirection;
+  intensity: "flat" | "normal" | "strong";
+  frequencies: [number, number];
+};
+
 export type Mode5RapidAnalysis = {
   candidate: MovementState;
   intensity: number;
@@ -132,14 +139,26 @@ export function mode5AudioWindows(history: RatePoint[], pipSize: number) {
   return MODE5_AUDIO_WINDOWS_MINUTES.map((minutes) => timeWindowSnapshot(history, minutes, pipSize));
 }
 
-export function buildMode5Frequencies(history: RatePoint[], pipSize: number) {
+export function buildMode5ToneCues(history: RatePoint[], pipSize: number): Mode5ToneCue[] {
   const windows = mode5AudioWindows(history, pipSize);
   if (windows.some((window) => !window.ready)) return [];
-  const baseFrequency = 620;
+  const baseFrequency = 660;
   return windows.map((window) => {
-    const sign = window.direction === "up" ? 1 : window.direction === "down" ? -1 : 0;
-    const semitones = sign * (1.5 + 5.5 * window.strength);
-    return baseFrequency * (2 ** (semitones / 12));
+    const direction = window.direction === "unchanged" || window.strength < 0.30
+      ? "unchanged"
+      : window.direction;
+    const intensity = direction === "unchanged" ? "flat" : window.strength >= 0.72 ? "strong" : "normal";
+    const intervalSemitones = intensity === "strong" ? 7 : intensity === "normal" ? 3 : 0;
+    const lower = baseFrequency * (2 ** (-intervalSemitones / 24));
+    const upper = baseFrequency * (2 ** (intervalSemitones / 24));
+    return {
+      minutes: window.minutes,
+      direction,
+      intensity,
+      frequencies: direction === "up"
+        ? [lower, upper]
+        : direction === "down" ? [upper, lower] : [baseFrequency, baseFrequency],
+    };
   });
 }
 

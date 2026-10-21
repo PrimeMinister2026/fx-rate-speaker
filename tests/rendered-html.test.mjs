@@ -32,12 +32,12 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v117<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v118<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
 
-test("v117 exposes only modes 4 and 5 while keeping the shared stable feature set", async () => {
+test("v118 exposes only modes 4 and 5 while keeping the shared stable feature set", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(source, /type AudioMode = "mode4" \| "mode5"/);
   assert.match(source, /mode4: Object\.freeze\(\{ commentary: true, news: true, calendarAlerts: true, rapidCauses: true/);
@@ -98,13 +98,15 @@ test("v113 defaults safely to mode 4 and renders clickable 30-point retained-his
   assert.doesNotMatch(source, /MEMO_STORAGE_KEY|<textarea value=\{memo\}/);
 });
 
-test("v117 keeps mode 4 stable and enables time-window audio, rapid, and graph only in mode 5", async () => {
+test("v118 keeps mode 4 stable and enables time-window audio, rapid, and graph only in mode 5", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(page, /mode4: Object\.freeze\(\{[^}]*timeWindowAudio: false[^}]*timeWindowRapid: false[^}]*thirtyMinuteGraph: false/);
   assert.match(page, /mode5: Object\.freeze\(\{[^}]*timeWindowAudio: true[^}]*timeWindowRapid: true[^}]*thirtyMinuteGraph: true/);
-  assert.match(page, /buildMode5Frequencies/);
+  assert.match(page, /buildMode5ToneCues/);
   assert.match(page, /playMode5TimeWindowTone/);
+  assert.match(page, /playMode5RapidWarning/);
+  assert.match(page, /mode5SkipDirectionToneRef\.current\.delete\(item\.code\)/);
   assert.match(page, /analyzeMode5Rapid/);
   assert.match(page, /sampleThirtyMinuteGraph/);
   assert.match(page, /threeMinuteGridLines/);
@@ -372,11 +374,11 @@ test("v114 stores compact positions and appends their P/L speech in both audio m
   assert.match(page, /mode4: Object\.freeze\([\s\S]*mode5: Object\.freeze/);
 });
 
-test("v117 keeps the app version in one source file", async () => {
+test("v118 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 117/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 118/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);

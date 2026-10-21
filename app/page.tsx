@@ -23,7 +23,7 @@ import {
 } from "@/lib/sound-mode";
 import {
   analyzeMode5Rapid,
-  buildMode5Frequencies,
+  buildMode5ToneCues,
   MODE5_AUDIO_WINDOWS_MINUTES,
   MODE5_GRAPH_WINDOW_SECONDS,
   sampleThirtyMinuteGraph,
@@ -967,6 +967,7 @@ export default function Home() {
   const lastStrengthCacheSaveRef = useRef(0);
   const lastGraphGridRef = useRef<number | null>(null);
   const rapidDisplayRef = useRef<Record<string, { state: "RAPID_UP" | "RAPID_DOWN"; until: number }>>({});
+  const mode5SkipDirectionToneRef = useRef(new Set<string>());
   const movementTrackerRef = useRef<Record<string, MovementTracker>>({});
   const commentaryCooldownRef = useRef(new Map<string, number>());
   const volatilityRegimeRef = useRef<Record<string, "normal" | "expanded" | "quiet">>({});
@@ -1454,30 +1455,59 @@ export default function Home() {
     await wait(70 + ((supplement.length - 1) * supplementStep + supplementDuration) * 1000 + 35);
   }
 
-  async function playMode5TimeWindowTone(frequencies: number[], runId: number) {
-    if (runId !== runIdRef.current || !soundOnRef.current || frequencies.length !== MODE5_AUDIO_WINDOWS_MINUTES.length) return;
+  async function playMode5TimeWindowTone(cues: ReturnType<typeof buildMode5ToneCues>, runId: number) {
+    if (runId !== runIdRef.current || !soundOnRef.current || cues.length !== MODE5_AUDIO_WINDOWS_MINUTES.length) return;
     ensureAudio();
     const context = audioContextRef.current;
     const output = gainRef.current;
     if (!context || !output) return;
     await context.resume();
     const startAt = context.currentTime;
-    const noteDuration = 0.18;
-    const noteStep = 0.25;
+    const noteDuration = 0.12;
+    const noteGap = 0.035;
+    const windowGap = 0.12;
+    const windowStep = noteDuration * 2 + noteGap + windowGap;
+    cues.forEach((cue, windowIndex) => {
+      cue.frequencies.forEach((frequency, noteIndex) => {
+        const noteAt = startAt + windowIndex * windowStep + noteIndex * (noteDuration + noteGap);
+        const oscillator = context.createOscillator();
+        const noteGain = context.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(frequency, noteAt);
+        noteGain.gain.setValueAtTime(0.0001, noteAt);
+        noteGain.gain.exponentialRampToValueAtTime(0.19, noteAt + 0.01);
+        noteGain.gain.exponentialRampToValueAtTime(0.0001, noteAt + noteDuration);
+        oscillator.connect(noteGain).connect(output);
+        oscillator.start(noteAt);
+        oscillator.stop(noteAt + noteDuration);
+      });
+    });
+    await wait(((cues.length - 1) * windowStep + noteDuration * 2 + noteGap) * 1000 + 45);
+  }
+
+  async function playMode5RapidWarning(direction: "RAPID_UP" | "RAPID_DOWN", runId: number) {
+    if (runId !== runIdRef.current || !soundOnRef.current) return;
+    ensureAudio();
+    const context = audioContextRef.current;
+    const output = gainRef.current;
+    if (!context || !output) return;
+    await context.resume();
+    const startAt = context.currentTime;
+    const frequencies = direction === "RAPID_UP" ? [520, 920, 1480] : [1480, 820, 420];
     frequencies.forEach((frequency, index) => {
-      const noteAt = startAt + index * noteStep;
+      const noteAt = startAt + index * 0.085;
       const oscillator = context.createOscillator();
       const noteGain = context.createGain();
-      oscillator.type = index === 2 ? "triangle" : "sine";
+      oscillator.type = "sawtooth";
       oscillator.frequency.setValueAtTime(frequency, noteAt);
       noteGain.gain.setValueAtTime(0.0001, noteAt);
-      noteGain.gain.exponentialRampToValueAtTime(0.2, noteAt + 0.012);
-      noteGain.gain.exponentialRampToValueAtTime(0.0001, noteAt + noteDuration);
+      noteGain.gain.exponentialRampToValueAtTime(0.16, noteAt + 0.006);
+      noteGain.gain.exponentialRampToValueAtTime(0.0001, noteAt + 0.07);
       oscillator.connect(noteGain).connect(output);
       oscillator.start(noteAt);
-      oscillator.stop(noteAt + noteDuration);
+      oscillator.stop(noteAt + 0.075);
     });
-    await wait(((frequencies.length - 1) * noteStep + noteDuration) * 1000 + 45);
+    await wait(270);
   }
 
   async function playRateCue(cue: PlaybackCue, runId: number) {
@@ -1979,6 +2009,7 @@ export default function Home() {
     latestAcceptedRef.current = {};
     latestMarketStatesRef.current = [];
     rapidDisplayRef.current = {};
+    mode5SkipDirectionToneRef.current.clear();
     lastGraphGridRef.current = null;
     previousStrengthScoresRef.current = {};
     strengthTrendHistoryRef.current = {};
@@ -2469,7 +2500,8 @@ export default function Home() {
         if (audioModeFeatures(audioModeRef.current).timeWindowRapid) {
           // Mode 5 warning is an independent Web Audio layer: it does not wait for
           // the scheduled 5m → 3m → 1m rate-reading sequence to finish.
-          void playEventLeadSound("PRICE_RAPID", runIdRef.current);
+          if (selectedRef.current.includes(pair.code)) mode5SkipDirectionToneRef.current.add(pair.code);
+          void playMode5RapidWarning(movement.notification, runIdRef.current);
         }
         const cause = findRapidCause(pair.code, now, recentNewsRef.current, calendarEventsRef.current);
         const causeKey = `${pair.code}:${cause.sourceId}`;
@@ -2708,8 +2740,8 @@ export default function Home() {
         const soundHistory = audioHistory.map((price, index) => ({ price, timestamp: index + 1 }));
         const scale = recentMovePips(soundHistory, pipSize, MODE2_POINT_COUNT - 1);
         const mode2Frequencies = scale === null ? [] : buildMode2Frequencies(audioHistory, pipSize, scale);
-        const mode5Frequencies = audioModeFeatures(audioModeRef.current).timeWindowAudio
-          ? buildMode5Frequencies(nextSparklineHistories[code] ?? [], pipSize)
+        const mode5ToneCues = audioModeFeatures(audioModeRef.current).timeWindowAudio
+          ? buildMode5ToneCues(nextSparklineHistories[code] ?? [], pipSize)
           : [];
         return {
           code,
@@ -2717,7 +2749,7 @@ export default function Home() {
           cue: direction,
           mode2Updated: latestAcceptedRef.current[code] ?? false,
           mode2Frequencies,
-          mode5Frequencies,
+          mode5ToneCues,
           movementState,
           price: spokenPrice(current, pair.yen),
           positionSpeech: positionsRef.current[code]
@@ -2785,9 +2817,12 @@ export default function Home() {
             for (const item of sequence) {
               if (runId !== runIdRef.current || !soundOnRef.current) break;
               await playSpeech(item.name, runId);
+              const skipMode5Tone = audioModeFeatures(audioModeRef.current).timeWindowAudio
+                && mode5SkipDirectionToneRef.current.delete(item.code);
               if (audioModeFeatures(audioModeRef.current).timeWindowAudio
-                && item.mode5Frequencies.length === MODE5_AUDIO_WINDOWS_MINUTES.length) {
-                await playMode5TimeWindowTone(item.mode5Frequencies, runId);
+                && !skipMode5Tone
+                && item.mode5ToneCues.length === MODE5_AUDIO_WINDOWS_MINUTES.length) {
+                await playMode5TimeWindowTone(item.mode5ToneCues, runId);
               } else if (!item.mode2Updated) {
                 // The source still reports the same observation. Its absence of a cue
                 // distinguishes "no update" without adding a duplicate note to the shape.
