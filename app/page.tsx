@@ -882,7 +882,7 @@ function Sparkline({ history, movement, direction, mode, now }: {
     const x = extended
       ? ((displayedHistory[index].timestamp - (nowSeconds - MODE5_GRAPH_WINDOW_SECONDS)) / MODE5_GRAPH_WINDOW_SECONDS) * 100
       : displayedHistory.length === 1 ? 50 : (index / (displayedHistory.length - 1)) * 100;
-    const y = 26 - ((price - minimum) / spread) * 22;
+    const y = 28.5 - ((price - minimum) / spread) * 27;
     return `${x.toFixed(2)},${y.toFixed(2)}`;
   });
   const rapid = movement === "RAPID_UP" || movement === "RAPID_DOWN";
