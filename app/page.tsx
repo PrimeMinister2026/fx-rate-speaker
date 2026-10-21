@@ -22,6 +22,14 @@ import {
   type Mode2PricePoint,
 } from "@/lib/sound-mode";
 import {
+  analyzeMode5Rapid,
+  buildMode5Frequencies,
+  MODE5_AUDIO_WINDOWS_MINUTES,
+  MODE5_GRAPH_WINDOW_SECONDS,
+  sampleThirtyMinuteGraph,
+  threeMinuteGridLines,
+} from "@/lib/mode5-market";
+import {
   SYNTHETIC_SYMBOLS,
   applyCurrentCorrection,
   emptySyntheticLearningState,
@@ -90,7 +98,7 @@ const COMMENTARY_COOLDOWN_MS = 3 * 60 * 1000;
 const BREAKOUT_COOLDOWN_MS = 4 * 60 * 1000;
 const SUMMARY_INTERVAL_MS = 5 * 60 * 1000;
 const SPARKLINE_DISPLAY_POINT_COUNT = 30;
-const SPARKLINE_HISTORY_POINT_COUNT = 60;
+const SPARKLINE_HISTORY_POINT_COUNT = 190;
 const SPARKLINE_LONG_WINDOW = 60;
 const SPARKLINE_BASE_WINDOW = 30;
 const SPARKLINE_MID_WINDOW = 15;
@@ -156,10 +164,13 @@ type AudioModeFeatures = {
   news: boolean;
   calendarAlerts: boolean;
   rapidCauses: boolean;
+  timeWindowAudio: boolean;
+  timeWindowRapid: boolean;
+  thirtyMinuteGraph: boolean;
 };
 const AUDIO_MODE_FEATURES: Readonly<Record<AudioMode, Readonly<AudioModeFeatures>>> = Object.freeze({
-  mode4: Object.freeze({ commentary: true, news: true, calendarAlerts: true, rapidCauses: true }),
-  mode5: Object.freeze({ commentary: true, news: true, calendarAlerts: true, rapidCauses: true }),
+  mode4: Object.freeze({ commentary: true, news: true, calendarAlerts: true, rapidCauses: true, timeWindowAudio: false, timeWindowRapid: false, thirtyMinuteGraph: false }),
+  mode5: Object.freeze({ commentary: true, news: true, calendarAlerts: true, rapidCauses: true, timeWindowAudio: true, timeWindowRapid: true, thirtyMinuteGraph: true }),
 });
 
 function audioModeFeatures(mode: AudioMode) {
@@ -848,12 +859,18 @@ function selectVisibleHistory(history: CommentaryEntry[], now: number) {
     .slice(0, COMMENTARY_VISIBLE_LIMIT);
 }
 
-function Sparkline({ history, movement, direction }: {
+function Sparkline({ history, movement, direction, mode, now }: {
   history: Mode2PricePoint[];
   movement: MovementState;
   direction: Direction;
+  mode: AudioMode;
+  now: number;
 }) {
-  const displayedHistory = history.slice(-SPARKLINE_DISPLAY_POINT_COUNT);
+  const extended = audioModeFeatures(mode).thirtyMinuteGraph;
+  const nowSeconds = now / 1000;
+  const displayedHistory = extended
+    ? sampleThirtyMinuteGraph(history, nowSeconds)
+    : history.slice(-SPARKLINE_DISPLAY_POINT_COUNT);
   if (displayedHistory.length < 2) {
     return <div className="sparkline waiting"><span>履歴を蓄積中</span></div>;
   }
@@ -862,7 +879,9 @@ function Sparkline({ history, movement, direction }: {
   const maximum = Math.max(...prices);
   const spread = maximum - minimum || Math.max(Math.abs(maximum) * 0.00001, 0.00001);
   const points = prices.map((price, index) => {
-    const x = displayedHistory.length === 1 ? 50 : (index / (displayedHistory.length - 1)) * 100;
+    const x = extended
+      ? ((displayedHistory[index].timestamp - (nowSeconds - MODE5_GRAPH_WINDOW_SECONDS)) / MODE5_GRAPH_WINDOW_SECONDS) * 100
+      : displayedHistory.length === 1 ? 50 : (index / (displayedHistory.length - 1)) * 100;
     const y = 26 - ((price - minimum) / spread) * 22;
     return `${x.toFixed(2)},${y.toFixed(2)}`;
   });
@@ -872,8 +891,13 @@ function Sparkline({ history, movement, direction }: {
   const midPoints = points.slice(-Math.min(SPARKLINE_MID_WINDOW, points.length)).join(" ");
   const recentPoints = points.slice(-Math.min(SPARKLINE_RECENT_WINDOW, points.length)).join(" ");
   const lastTwo = points.slice(-2).join(" ");
+  const timeGrid = extended ? threeMinuteGridLines(nowSeconds) : [];
   return (
-    <svg className={`sparkline ${direction} ${rapid ? "rapid" : ""}`} viewBox="0 0 100 30" preserveAspectRatio="none" aria-label={`直近${displayedHistory.length}点の値動き`}>
+    <svg className={`sparkline ${direction} ${rapid ? "rapid" : ""}`} viewBox="0 0 100 30" preserveAspectRatio="none" aria-label={extended ? "直近約30分の値動き" : `直近${displayedHistory.length}点の値動き`}>
+      {timeGrid.map((line) => {
+        const x = ((line.timestamp - (nowSeconds - MODE5_GRAPH_WINDOW_SECONDS)) / MODE5_GRAPH_WINDOW_SECONDS) * 100;
+        return <line key={line.timestamp} className={`spark-time-grid ${line.major ? "major" : "minor"}`} x1={x} y1="2" x2={x} y2="28" />;
+      })}
       <line className="spark-midline" x1="0" y1="15" x2="100" y2="15" />
       <polyline className="spark-path" points={points.join(" ")} />
       {displayedHistory.length > SPARKLINE_RECENT_WINDOW && <polyline className={`spark-mid-path ${midDirection}`} points={midPoints} />}
@@ -1430,6 +1454,32 @@ export default function Home() {
     await wait(70 + ((supplement.length - 1) * supplementStep + supplementDuration) * 1000 + 35);
   }
 
+  async function playMode5TimeWindowTone(frequencies: number[], runId: number) {
+    if (runId !== runIdRef.current || !soundOnRef.current || frequencies.length !== MODE5_AUDIO_WINDOWS_MINUTES.length) return;
+    ensureAudio();
+    const context = audioContextRef.current;
+    const output = gainRef.current;
+    if (!context || !output) return;
+    await context.resume();
+    const startAt = context.currentTime;
+    const noteDuration = 0.18;
+    const noteStep = 0.25;
+    frequencies.forEach((frequency, index) => {
+      const noteAt = startAt + index * noteStep;
+      const oscillator = context.createOscillator();
+      const noteGain = context.createGain();
+      oscillator.type = index === 2 ? "triangle" : "sine";
+      oscillator.frequency.setValueAtTime(frequency, noteAt);
+      noteGain.gain.setValueAtTime(0.0001, noteAt);
+      noteGain.gain.exponentialRampToValueAtTime(0.2, noteAt + 0.012);
+      noteGain.gain.exponentialRampToValueAtTime(0.0001, noteAt + noteDuration);
+      oscillator.connect(noteGain).connect(output);
+      oscillator.start(noteAt);
+      oscillator.stop(noteAt + noteDuration);
+    });
+    await wait(((frequencies.length - 1) * noteStep + noteDuration) * 1000 + 45);
+  }
+
   async function playRateCue(cue: PlaybackCue, runId: number) {
     if (cue === "up" || cue === "down" || cue === "unchanged") {
       await playDirectionTone(cue, runId);
@@ -1438,7 +1488,7 @@ export default function Home() {
     await playMovementTone(cue, runId);
   }
 
-  function movementCue(code: string, rate: Rate, yen: boolean): MovementSnapshot {
+  function movementCue(code: string, rate: Rate, yen: boolean, timeHistory: Mode2PricePoint[]): MovementSnapshot {
     const currentHistory = rateHistoryRef.current[code] ?? [];
     const pipSize = yen ? 0.01 : 0.0001;
     const existingTracker = movementTrackerRef.current[code] ?? { state: "NORMAL", normalConfirmations: 0 };
@@ -1452,7 +1502,55 @@ export default function Home() {
       };
     }
     rateHistoryRef.current[code] = appended.history;
-    const analysis = analyzeMovement(appended.history, pipSize);
+    const mode5Analysis = audioModeFeatures(audioModeRef.current).timeWindowRapid
+      ? analyzeMode5Rapid(timeHistory, pipSize)
+      : null;
+    const analysis = audioModeFeatures(audioModeRef.current).timeWindowRapid
+      ? null
+      : analyzeMovement(appended.history, pipSize);
+    if (audioModeFeatures(audioModeRef.current).timeWindowRapid && !mode5Analysis) {
+      return {
+        notification: null,
+        state: existingTracker.state,
+        recentMove: recentMovePips(appended.history, pipSize, 6),
+        rapidMovePips: null,
+      };
+    }
+    if (mode5Analysis) {
+      const transition = transitionMovement(existingTracker, mode5Analysis.candidate, Date.now(), mode5Analysis.intensity);
+      movementTrackerRef.current[code] = transition.tracker;
+      if (mode5Analysis.candidate === "RAPID_UP" || mode5Analysis.candidate === "RAPID_DOWN") {
+        const oneMinute = mode5Analysis.windows.find((window) => window.minutes === 1)!;
+        console.debug("[FX Rate Speaker mode5 RAPID audit]", {
+          pair: code,
+          direction: mode5Analysis.candidate,
+          windows: Object.fromEntries(mode5Analysis.windows.map((window) => [`${window.minutes}m`, {
+            netPips: window.netPips,
+            efficiency: window.efficiency,
+            persistence: window.persistence,
+            startTimestamp: window.startTimestamp,
+            endTimestamp: window.endTimestamp,
+          }])),
+          medianOneMinute: mode5Analysis.medianOneMinute,
+          percentileOneMinute: mode5Analysis.percentileOneMinute,
+          rangeFiveMinutes: mode5Analysis.rangeFiveMinutes,
+          oneMinuteRangeRatio: mode5Analysis.rangeRatio,
+          accelerationRatio: mode5Analysis.accelerationRatio,
+        });
+        return {
+          notification: transition.notification,
+          state: transition.tracker.state,
+          recentMove: mode5Analysis.medianOneMinute,
+          rapidMovePips: transition.notification ? Math.abs(oneMinute.netPips) : null,
+        };
+      }
+      return {
+        notification: transition.notification,
+        state: transition.tracker.state,
+        recentMove: mode5Analysis.medianOneMinute,
+        rapidMovePips: null,
+      };
+    }
     if (!analysis) {
       return {
         notification: null,
@@ -2350,11 +2448,11 @@ export default function Home() {
       const previous = previousAnalysisRatesRef.current[pair.code]?.price;
       const direction: Direction = previous !== undefined && analysisRate.price > previous
         ? "up" : previous !== undefined && analysisRate.price < previous ? "down" : "unchanged";
-      const movement = movementCue(pair.code, analysisRate, pair.yen);
+      const history = histories[pair.code] ?? [];
+      const movement = movementCue(pair.code, analysisRate, pair.yen, history);
       const audioUpdate = appendMode2PricePoint(audioPriceHistoryRef.current[pair.code] ?? [], analysisRate);
       audioPriceHistoryRef.current[pair.code] = audioUpdate.history;
       if (audioUpdate.accepted) latestAcceptedRef.current[pair.code] = true;
-      const history = histories[pair.code] ?? [];
       const flow = flowSnapshot(history, direction);
       const candidate = commentaryCandidate(
         pair.code,
@@ -2368,6 +2466,11 @@ export default function Home() {
       if (candidate) candidates.push(candidate);
       if (audioModeFeatures(audioModeRef.current).rapidCauses
         && (movement.notification === "RAPID_UP" || movement.notification === "RAPID_DOWN")) {
+        if (audioModeFeatures(audioModeRef.current).timeWindowRapid) {
+          // Mode 5 warning is an independent Web Audio layer: it does not wait for
+          // the scheduled 5m → 3m → 1m rate-reading sequence to finish.
+          void playEventLeadSound("PRICE_RAPID", runIdRef.current);
+        }
         const cause = findRapidCause(pair.code, now, recentNewsRef.current, calendarEventsRef.current);
         const causeKey = `${pair.code}:${cause.sourceId}`;
         const lastCauseAt = causeCooldownRef.current.get(causeKey) ?? 0;
@@ -2605,12 +2708,16 @@ export default function Home() {
         const soundHistory = audioHistory.map((price, index) => ({ price, timestamp: index + 1 }));
         const scale = recentMovePips(soundHistory, pipSize, MODE2_POINT_COUNT - 1);
         const mode2Frequencies = scale === null ? [] : buildMode2Frequencies(audioHistory, pipSize, scale);
+        const mode5Frequencies = audioModeFeatures(audioModeRef.current).timeWindowAudio
+          ? buildMode5Frequencies(nextSparklineHistories[code] ?? [], pipSize)
+          : [];
         return {
           code,
           name: pair.name,
           cue: direction,
           mode2Updated: latestAcceptedRef.current[code] ?? false,
           mode2Frequencies,
+          mode5Frequencies,
           movementState,
           price: spokenPrice(current, pair.yen),
           positionSpeech: positionsRef.current[code]
@@ -2645,7 +2752,9 @@ export default function Home() {
               const leadSound: LeadSound = commentary.source === "NEWS"
                 ? (commentary.importance ?? "NEWS_L1")
                 : commentary.level === "rapid" ? "PRICE_RAPID" : "NONE";
-              await playEventLeadSound(leadSound, runId);
+              const alreadyPlayedImmediateRapid = commentary.level === "rapid"
+                && audioModeFeatures(audioModeRef.current).timeWindowRapid;
+              if (!alreadyPlayedImmediateRapid) await playEventLeadSound(leadSound, runId);
               await playCommentaryChime(runId);
               await playSpeech(commentary.text, runId);
               await wait(120);
@@ -2676,7 +2785,10 @@ export default function Home() {
             for (const item of sequence) {
               if (runId !== runIdRef.current || !soundOnRef.current) break;
               await playSpeech(item.name, runId);
-              if (!item.mode2Updated) {
+              if (audioModeFeatures(audioModeRef.current).timeWindowAudio
+                && item.mode5Frequencies.length === MODE5_AUDIO_WINDOWS_MINUTES.length) {
+                await playMode5TimeWindowTone(item.mode5Frequencies, runId);
+              } else if (!item.mode2Updated) {
                 // The source still reports the same observation. Its absence of a cue
                 // distinguishes "no update" without adding a duplicate note to the shape.
               } else if (item.mode2Frequencies.length === MODE2_POINT_COUNT) {
@@ -3056,7 +3168,7 @@ export default function Home() {
                     </button>
                   </div>
                   <div className="spark-slot">
-                    <Sparkline history={history} movement={movement} direction={chartDirection} />
+                    <Sparkline history={history} movement={movement} direction={chartDirection} mode={audioMode} now={currentTime} />
                   </div>
                   <div className="rate-summary">
                     <div className="rate-value-line">
