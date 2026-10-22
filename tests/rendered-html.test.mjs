@@ -32,7 +32,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v118<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v120<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -98,7 +98,7 @@ test("v113 defaults safely to mode 4 and renders clickable 30-point retained-his
   assert.doesNotMatch(source, /MEMO_STORAGE_KEY|<textarea value=\{memo\}/);
 });
 
-test("v118 keeps mode 4 stable and enables time-window audio, rapid, and graph only in mode 5", async () => {
+test("v120 keeps mode 4 stable and routes complete mode 5 events through one queue", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(page, /mode4: Object\.freeze\(\{[^}]*timeWindowAudio: false[^}]*timeWindowRapid: false[^}]*thirtyMinuteGraph: false/);
@@ -106,7 +106,11 @@ test("v118 keeps mode 4 stable and enables time-window audio, rapid, and graph o
   assert.match(page, /buildMode5ToneCues/);
   assert.match(page, /playMode5TimeWindowTone/);
   assert.match(page, /playMode5RapidWarning/);
-  assert.match(page, /mode5SkipDirectionToneRef\.current\.delete\(item\.code\)/);
+  assert.doesNotMatch(page, /mode5SkipDirectionToneRef/);
+  assert.match(page, /enqueueMode5AudioEvent/);
+  assert.match(page, /queueMode5RapidAudioEvent/);
+  assert.doesNotMatch(page, /void playMode5RapidWarning\(movement\.notification/);
+  assert.match(page, /Mode 5 is self-contained:[\s\S]*never fall back to the legacy seven-point melody/);
   assert.match(page, /analyzeMode5Rapid/);
   assert.match(page, /sampleThirtyMinuteGraph/);
   assert.match(page, /threeMinuteGridLines/);
@@ -135,12 +139,11 @@ test("v79 promotes the OANDA stream to all ten primary pairs with Yahoo fallback
   assert.match(route, /OANDA_API_TOKEN/);
   assert.match(route, /pricing\/stream/);
   assert.match(source, /type RateSource = "OANDA" \| "OANDA_SYNTHETIC" \| "YAHOO"/);
-  assert.match(source, /function freshOandaRate/);
-  assert.match(source, /function syntheticOandaRate/);
-  assert.match(source, /function applyAdoptedRates/);
-  assert.match(source, /sources\[pair\.code\] = "OANDA"/);
-  assert.match(source, /sources\[pair\.code\] = "OANDA_SYNTHETIC"/);
-  assert.match(source, /sources\[pair\.code\] = "YAHOO"/);
+  const policy = await readFile(new URL("../lib/adopted-rates.ts", import.meta.url), "utf8");
+  assert.match(source, /selectAdoptedRates\(oandaLiveRef.current, yahooRates\)/);
+  assert.match(policy, /function freshOandaRate/);
+  assert.match(policy, /function syntheticOandaRate/);
+  assert.match(policy, /direct \? "OANDA" : synthetic \? "OANDA_SYNTHETIC" : "YAHOO"/);
   assert.match(source, /function startOandaPrimary/);
 });
 
@@ -378,7 +381,7 @@ test("v118 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 118/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 120/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);

@@ -24,7 +24,6 @@ import {
 import {
   analyzeMode5Rapid,
   buildMode5ToneCues,
-  MODE5_AUDIO_WINDOWS_MINUTES,
   MODE5_GRAPH_WINDOW_SECONDS,
   sampleThirtyMinuteGraph,
   threeMinuteGridLines,
@@ -41,6 +40,7 @@ import {
   type SyntheticStatus,
   type SyntheticSymbol,
 } from "@/lib/synthetic";
+import { selectAdoptedRates } from "@/lib/adopted-rates";
 import { FX_RATE_SPEAKER_VERSION_LABEL } from "@/lib/version";
 import {
   calculatePositionPips,
@@ -121,7 +121,6 @@ const RAPID_DISPLAY_HOLD_MS = 30 * 1000;
 const RAPID_AUDIO_MIN_REMAINING_MS = 15 * 1000;
 const COMMENTARY_MERGE_MS = 60 * 1000;
 const OANDA_SHADOW_STORAGE_KEY = "fx-rate-speaker-oanda-shadow-v1";
-const OANDA_PRIMARY_STALE_MS = 60 * 1000;
 const OANDA_SHADOW_MAX_RECORDS = 5000;
 const SYNTHETIC_STORAGE_KEY = "fx-rate-speaker-synthetic-learning-v1";
 const MARKET_NOTICE_STORAGE_KEY = "fx-rate-speaker-market-notices-v3";
@@ -259,6 +258,12 @@ type RateDisplayState = {
 };
 
 type QueuedCommentary = CommentaryEntry & { priority: number };
+type Mode5AudioEventType = "NORMAL_RATE" | "RAPID_UP" | "RAPID_DOWN" | "NEWS_L2" | "NEWS_L3" | "INDICATOR" | "TIME_SIGNAL" | "COMMENTARY";
+type Mode5AudioEventMeta = {
+  type: Mode5AudioEventType;
+  pair?: string;
+  speech: string;
+};
 
 type FlowSnapshot = {
   overall: Direction;
@@ -967,7 +972,6 @@ export default function Home() {
   const lastStrengthCacheSaveRef = useRef(0);
   const lastGraphGridRef = useRef<number | null>(null);
   const rapidDisplayRef = useRef<Record<string, { state: "RAPID_UP" | "RAPID_DOWN"; until: number }>>({});
-  const mode5SkipDirectionToneRef = useRef(new Set<string>());
   const movementTrackerRef = useRef<Record<string, MovementTracker>>({});
   const commentaryCooldownRef = useRef(new Map<string, number>());
   const volatilityRegimeRef = useRef<Record<string, "normal" | "expanded" | "quiet">>({});
@@ -1456,7 +1460,7 @@ export default function Home() {
   }
 
   async function playMode5TimeWindowTone(cues: ReturnType<typeof buildMode5ToneCues>, runId: number) {
-    if (runId !== runIdRef.current || !soundOnRef.current || cues.length !== MODE5_AUDIO_WINDOWS_MINUTES.length) return;
+    if (runId !== runIdRef.current || !soundOnRef.current || cues.length === 0) return;
     ensureAudio();
     const context = audioContextRef.current;
     const output = gainRef.current;
@@ -1717,6 +1721,47 @@ export default function Home() {
     const next = audioQueueRef.current.catch(() => undefined).then(task);
     audioQueueRef.current = next.catch(() => undefined);
     return next;
+  }
+
+  function enqueueMode5AudioEvent(meta: Mode5AudioEventMeta, task: () => Promise<void>) {
+    console.debug("[FX Rate Speaker audio event queued]", meta);
+    return enqueueAudio(async () => {
+      console.debug("[FX Rate Speaker audio event start]", meta);
+      try {
+        await task();
+        console.debug("[FX Rate Speaker audio event complete]", meta);
+      } catch (error) {
+        console.error("[FX Rate Speaker audio event failed]", {
+          ...meta,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        if (runIdRef.current && soundOnRef.current) {
+          setDetail(`${meta.type}${meta.pair ? ` ${meta.pair}` : ""} の音声を再生できませんでした。`);
+        }
+      }
+    });
+  }
+
+  function queueMode5RapidAudioEvent(
+    pair: (typeof PAIRS)[number],
+    direction: "RAPID_UP" | "RAPID_DOWN",
+    rate: Rate,
+    causeText?: string,
+  ) {
+    const runId = runIdRef.current;
+    const price = spokenPrice(rate.price, pair.yen);
+    const positionSpeech = positionsRef.current[pair.code]
+      ? positionPipsSpeech(calculatePositionPips(positionsRef.current[pair.code], rate.price, pair.yen))
+      : null;
+    const speech = `${pair.name}、${direction === "RAPID_UP" ? "急騰" : "急落"}。${price}${positionSpeech ? `。${positionSpeech}` : ""}${causeText ? `。${causeText}` : ""}`;
+    void enqueueMode5AudioEvent({ type: direction, pair: pair.code, speech }, async () => {
+      if (runId !== runIdRef.current || !soundOnRef.current) return;
+      extendRapidDisplayForAudio(pair.code);
+      await playMode5RapidWarning(direction, runId);
+      console.debug("[FX Rate Speaker audio lead sound complete]", { type: direction, pair: pair.code });
+      await playSpeech(speech, runId);
+      console.debug("[FX Rate Speaker audio speech complete]", { type: direction, pair: pair.code, speech });
+    });
   }
 
   function speakCurrentTime(runId: number, timestamp: number) {
@@ -2009,7 +2054,6 @@ export default function Home() {
     latestAcceptedRef.current = {};
     latestMarketStatesRef.current = [];
     rapidDisplayRef.current = {};
-    mode5SkipDirectionToneRef.current.clear();
     lastGraphGridRef.current = null;
     previousStrengthScoresRef.current = {};
     strengthTrendHistoryRef.current = {};
@@ -2269,61 +2313,8 @@ export default function Home() {
     return output;
   }
 
-  function freshOandaRate(code: string, now = Date.now()) {
-    const rate = oandaLiveRef.current[code];
-    if (!rate) return null;
-    const age = now - rate.timestamp * 1000;
-    return age >= -20_000 && age <= OANDA_PRIMARY_STALE_MS ? rate : null;
-  }
-
-  function syntheticOandaRate(code: string, now = Date.now()): Rate | null {
-    const direct = (symbol: string) => freshOandaRate(symbol, now);
-    const cross = (left: Rate | null, right: Rate | null, operation: "multiply" | "divide") => {
-      if (!left || !right || (operation === "divide" && right.price === 0)) return null;
-      const price = operation === "multiply" ? left.price * right.price : left.price / right.price;
-      return Number.isFinite(price) && price > 0
-        ? { price, timestamp: Math.min(left.timestamp, right.timestamp) }
-        : null;
-    };
-    if (code === "EUR/USD") return cross(direct("EUR/JPY"), direct("USD/JPY"), "divide");
-    if (code === "GBP/USD") return cross(direct("GBP/JPY"), direct("USD/JPY"), "divide");
-    if (code === "AUD/USD") return cross(direct("AUD/JPY"), direct("USD/JPY"), "divide");
-    if (code === "EUR/JPY") return cross(direct("EUR/USD"), direct("USD/JPY"), "multiply");
-    if (code === "GBP/JPY") return cross(direct("GBP/USD"), direct("USD/JPY"), "multiply");
-    if (code === "AUD/JPY") return cross(direct("AUD/USD"), direct("USD/JPY"), "multiply");
-    if (code === "EUR/GBP") return cross(direct("EUR/USD"), direct("GBP/USD"), "divide");
-    if (code === "EUR/AUD") return cross(direct("EUR/USD"), direct("AUD/USD"), "divide");
-    if (code === "GBP/AUD") return cross(direct("GBP/USD"), direct("AUD/USD"), "divide");
-    if (code === "USD/JPY") {
-      return cross(direct("EUR/JPY"), direct("EUR/USD"), "divide")
-        ?? cross(direct("GBP/JPY"), direct("GBP/USD"), "divide");
-    }
-    return null;
-  }
-
   function applyAdoptedRates(yahooRates: RateMap) {
-    const now = Date.now();
-    const adopted: RateMap = {};
-    const sources: Record<string, RateSource> = {};
-    PAIRS.forEach((pair) => {
-      const direct = freshOandaRate(pair.code, now);
-      if (direct) {
-        adopted[pair.code] = direct;
-        sources[pair.code] = "OANDA";
-        return;
-      }
-      const synthetic = syntheticOandaRate(pair.code, now);
-      if (synthetic) {
-        adopted[pair.code] = synthetic;
-        sources[pair.code] = "OANDA_SYNTHETIC";
-        return;
-      }
-      const yahoo = yahooRates[pair.code];
-      if (yahoo) {
-        adopted[pair.code] = yahoo;
-        sources[pair.code] = "YAHOO";
-      }
-    });
+    const { rates: adopted, sources } = selectAdoptedRates(oandaLiveRef.current, yahooRates);
     ratesRef.current = adopted;
     setRates(adopted);
     setRateSources(sources);
@@ -2472,6 +2463,7 @@ export default function Home() {
     const causeEntries: QueuedCommentary[] = [];
     const states: Array<{ name: string; state: MovementState; flow: FlowSnapshot }> = [];
     const displayUpdates: Record<string, RateDisplayState> = {};
+    const queuedMode5RapidPairs = new Set<string>();
     const now = Date.now();
     PAIRS.forEach((pair) => {
       const analysisRate = freshRates[pair.code];
@@ -2497,18 +2489,12 @@ export default function Home() {
       if (candidate) candidates.push(candidate);
       if (audioModeFeatures(audioModeRef.current).rapidCauses
         && (movement.notification === "RAPID_UP" || movement.notification === "RAPID_DOWN")) {
-        if (audioModeFeatures(audioModeRef.current).timeWindowRapid) {
-          // Mode 5 warning is an independent Web Audio layer: it does not wait for
-          // the scheduled 5m → 3m → 1m rate-reading sequence to finish.
-          if (selectedRef.current.includes(pair.code)) mode5SkipDirectionToneRef.current.add(pair.code);
-          void playMode5RapidWarning(movement.notification, runIdRef.current);
-        }
         const cause = findRapidCause(pair.code, now, recentNewsRef.current, calendarEventsRef.current);
         const causeKey = `${pair.code}:${cause.sourceId}`;
         const lastCauseAt = causeCooldownRef.current.get(causeKey) ?? 0;
         if (now - lastCauseAt >= CAUSE_COOLDOWN_MS) {
           causeCooldownRef.current.set(causeKey, now);
-          causeEntries.push({
+          const causeEntry: QueuedCommentary = {
             id: `${now}-${pair.code}-cause-${cause.sourceId}`,
             timestamp: now,
             source: "CAUSE",
@@ -2518,7 +2504,14 @@ export default function Home() {
             level: cause.confidence === "UNKNOWN" ? "normal" : "important",
             confidence: cause.confidence,
             priority: cause.confidence === "CONFIRMED" ? 95 : cause.confidence === "LIKELY" ? 90 : 85,
-          });
+          };
+          if (audioModeFeatures(audioModeRef.current).timeWindowRapid) {
+            queuedMode5RapidPairs.add(pair.code);
+            queueMode5RapidAudioEvent(pair, movement.notification, analysisRate, cause.text);
+            addCommentaryHistory(causeEntry);
+          } else {
+            causeEntries.push(causeEntry);
+          }
           console.info("[FX Rate Speaker rapid cause]", {
             pair: pair.code,
             direction: movement.notification,
@@ -2563,13 +2556,15 @@ export default function Home() {
     setRateDisplayStates((current) => ({ ...current, ...displayUpdates }));
     if (!audioModeFeatures(audioModeRef.current).commentary) return;
     const selectedCommentary = chooseCommentary(candidates, states, Date.now());
+    const queuedRapidCommentary = selectedCommentary?.level === "rapid"
+      && queuedMode5RapidPairs.has(selectedCommentary.pair);
     if (!selectedCommentary && !causeEntries.length) return;
     const priority = selectedCommentary ? candidates.find((candidate) =>
       selectedCommentary.id.includes(candidate.eventKey) && selectedCommentary.pair === candidate.pair,
     )?.priority ?? 20 : 0;
     pendingCommentaryRef.current = [
       ...pendingCommentaryRef.current,
-      ...(selectedCommentary ? [{ ...selectedCommentary, priority }] : []),
+      ...(selectedCommentary && !queuedRapidCommentary ? [{ ...selectedCommentary, priority }] : []),
       ...causeEntries,
     ].sort((left, right) => right.priority - left.priority || right.timestamp - left.timestamp).slice(0, 8);
     if (selectedCommentary) addCommentaryHistory(selectedCommentary);
@@ -2769,76 +2764,73 @@ export default function Home() {
       const criticalNews = pendingNews.filter((item) => item.level === "NEWS_L3");
       const otherNews = pendingNews.filter((item) => item.level !== "NEWS_L3");
       if (soundOnRef.current && readable.length) {
-        try {
-          setStatus("読み上げ中");
-          await enqueueAudio(async () => {
-            if (runId !== runIdRef.current || !soundOnRef.current) return;
-            await Promise.all([
-              ...sequence.flatMap((item) => [getSpeechUrl(item.name), getSpeechUrl(item.price), ...(item.positionSpeech ? [getSpeechUrl(item.positionSpeech)] : [])]),
-              ...(commentary ? [getSpeechUrl(commentary.text)] : []),
-              ...pendingNews.map((item) => getSpeechUrl(newsSpeechText(item))),
-            ]);
-            const speakCommentary = async () => {
-              if (!commentary) return;
-              if (commentary.level === "rapid") extendRapidDisplayForAudio(commentary.pair);
-              const leadSound: LeadSound = commentary.source === "NEWS"
-                ? (commentary.importance ?? "NEWS_L1")
-                : commentary.level === "rapid" ? "PRICE_RAPID" : "NONE";
-              const alreadyPlayedImmediateRapid = commentary.level === "rapid"
-                && audioModeFeatures(audioModeRef.current).timeWindowRapid;
-              if (!alreadyPlayedImmediateRapid) await playEventLeadSound(leadSound, runId);
+        setStatus("読み上げ中");
+        const queueNews = async (news: NewsItem) => {
+          const text = newsSpeechText(news);
+          await enqueueMode5AudioEvent({ type: news.level, speech: text }, async () => {
+            if (!audioModeFeatures(audioModeRef.current).news || runId !== runIdRef.current || !soundOnRef.current) return;
+            newsSpeechActiveRef.current = true;
+            try {
+              await playEventLeadSound(news.level, runId);
+              console.debug("[FX Rate Speaker audio lead sound complete]", { type: news.level });
               await playCommentaryChime(runId);
-              await playSpeech(commentary.text, runId);
+              await playSpeech(text, runId);
+              console.debug("[FX Rate Speaker audio speech complete]", { type: news.level, speech: text });
               await wait(120);
-            };
-            const speakNews = async (news: NewsItem) => {
-              if (!audioModeFeatures(audioModeRef.current).news || runId !== runIdRef.current || !soundOnRef.current) return;
-              newsSpeechActiveRef.current = true;
-              try {
-                const text = newsSpeechText(news);
-                await playEventLeadSound(news.level, runId);
-                await playCommentaryChime(runId);
-                await playSpeech(text, runId);
-                await wait(120);
-              } finally {
-                newsSpeechActiveRef.current = false;
-              }
-            };
-            for (const news of criticalNews) {
-              await speakNews(news);
-            }
-            const criticalIndicator = commentary?.kind.startsWith("指標") && commentary.priority >= 110;
-            if (criticalIndicator || commentary?.level === "rapid" || commentary?.source === "CAUSE") await speakCommentary();
-            for (const news of otherNews) {
-              await speakNews(news);
-            }
-            if (commentary && !criticalIndicator && commentary.level !== "rapid" && commentary.source !== "CAUSE") await speakCommentary();
-            await playStartChime(runId);
-            for (const item of sequence) {
-              if (runId !== runIdRef.current || !soundOnRef.current) break;
-              await playSpeech(item.name, runId);
-              const skipMode5Tone = audioModeFeatures(audioModeRef.current).timeWindowAudio
-                && mode5SkipDirectionToneRef.current.delete(item.code);
-              if (audioModeFeatures(audioModeRef.current).timeWindowAudio
-                && !skipMode5Tone
-                && item.mode5ToneCues.length === MODE5_AUDIO_WINDOWS_MINUTES.length) {
-                await playMode5TimeWindowTone(item.mode5ToneCues, runId);
-              } else if (!item.mode2Updated) {
-                // The source still reports the same observation. Its absence of a cue
-                // distinguishes "no update" without adding a duplicate note to the shape.
-              } else if (item.mode2Frequencies.length === MODE2_POINT_COUNT) {
-                await playMode2Tone(item.mode2Frequencies, item.movementState, runId);
-              } else {
-                await playRateCue(item.cue, runId);
-              }
-              await playSpeech(item.price, runId);
-              if (item.positionSpeech) await playSpeech(item.positionSpeech, runId);
-              await wait(75);
-              latestAcceptedRef.current[item.code] = false;
+            } finally {
+              newsSpeechActiveRef.current = false;
             }
           });
-        } catch {
-          setDetail("音声を再生できませんでした。開始ボタンを押し直してください。");
+        };
+        const queueCommentary = async () => {
+          if (!commentary) return;
+          const indicator = commentary.kind.startsWith("指標");
+          const type: Mode5AudioEventType = indicator ? "INDICATOR" : "COMMENTARY";
+          await enqueueMode5AudioEvent({ type, pair: commentary.pair, speech: commentary.text }, async () => {
+            if (runId !== runIdRef.current || !soundOnRef.current) return;
+            const leadSound: LeadSound = commentary.source === "NEWS"
+              ? (commentary.importance ?? "NEWS_L1")
+              : commentary.level === "rapid" ? "PRICE_RAPID" : "NONE";
+            await playEventLeadSound(leadSound, runId);
+            console.debug("[FX Rate Speaker audio lead sound complete]", { type, pair: commentary.pair });
+            await playCommentaryChime(runId);
+            await playSpeech(commentary.text, runId);
+            console.debug("[FX Rate Speaker audio speech complete]", { type, pair: commentary.pair, speech: commentary.text });
+            await wait(120);
+          });
+        };
+        for (const news of criticalNews) await queueNews(news);
+        const criticalIndicator = commentary?.kind.startsWith("指標") && commentary.priority >= 110;
+        if (criticalIndicator || commentary?.level === "rapid" || commentary?.source === "CAUSE") await queueCommentary();
+        for (const news of otherNews) await queueNews(news);
+        if (commentary && !criticalIndicator && commentary.level !== "rapid" && commentary.source !== "CAUSE") await queueCommentary();
+        let firstNormalRate = true;
+        for (const item of sequence) {
+          const speech = `${item.name}。${item.price}${item.positionSpeech ? `。${item.positionSpeech}` : ""}`;
+          await enqueueMode5AudioEvent({ type: "NORMAL_RATE", pair: item.code, speech }, async () => {
+            if (runId !== runIdRef.current || !soundOnRef.current) return;
+            if (firstNormalRate) {
+              firstNormalRate = false;
+              await playStartChime(runId);
+            }
+            await playSpeech(item.name, runId);
+            if (audioModeFeatures(audioModeRef.current).timeWindowAudio) {
+              // Mode 5 is self-contained: play only ready 5m / 3m / 1m cues and
+              // never fall back to the legacy seven-point melody.
+              await playMode5TimeWindowTone(item.mode5ToneCues, runId);
+            } else if (!item.mode2Updated) {
+              // Mode 4 keeps the saved behavior when the source timestamp is unchanged.
+            } else if (item.mode2Frequencies.length === MODE2_POINT_COUNT) {
+              await playMode2Tone(item.mode2Frequencies, item.movementState, runId);
+            } else {
+              await playRateCue(item.cue, runId);
+            }
+            await playSpeech(item.price, runId);
+            if (item.positionSpeech) await playSpeech(item.positionSpeech, runId);
+            console.debug("[FX Rate Speaker audio speech complete]", { type: "NORMAL_RATE", pair: item.code, speech });
+            await wait(75);
+            latestAcceptedRef.current[item.code] = false;
+          });
         }
       }
       setStatus("待機中");

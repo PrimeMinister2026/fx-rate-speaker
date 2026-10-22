@@ -141,9 +141,8 @@ export function mode5AudioWindows(history: RatePoint[], pipSize: number) {
 
 export function buildMode5ToneCues(history: RatePoint[], pipSize: number): Mode5ToneCue[] {
   const windows = mode5AudioWindows(history, pipSize);
-  if (windows.some((window) => !window.ready)) return [];
   const baseFrequency = 660;
-  return windows.map((window) => {
+  return windows.filter((window) => window.ready).map((window) => {
     const direction = window.direction === "unchanged" || window.strength < 0.30
       ? "unchanged"
       : window.direction;

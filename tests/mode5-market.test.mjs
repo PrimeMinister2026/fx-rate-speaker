@@ -42,6 +42,12 @@ test("mode 5 uses symmetric two-note direction cues and widens strong moves", ()
   assert.ok(strongCue.frequencies[1] / strongCue.frequencies[0] > normalCue.frequencies[1] / normalCue.frequencies[0]);
 });
 
+test("mode 5 emits only ready time-window cues without legacy fallback", () => {
+  const twoMinutes = seriesFromChanges(Array(12).fill(0.4));
+  const cues = buildMode5ToneCues(twoMinutes, 0.01);
+  assert.deepEqual(cues.map((cue) => cue.minutes), [1]);
+});
+
 test("small countertrend moves do not become rapid", () => {
   const decline = Array(105).fill(-0.35);
   const smallBounce = Array(6).fill(0.18);
