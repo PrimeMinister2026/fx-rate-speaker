@@ -276,6 +276,9 @@ button.chosen { border-color:var(--gold); background:#392d0c; color:#fff1b2; box
 .analysis-stance .sell.chosen { border-color:#d85a69; background:#531b25; color:#ffe0e4; }
 .analysis-stance .wait.chosen { border-color:#d3a83a; background:#463914; color:#fff0b0; }
 .analysis-editor-note { margin:0; color:#a99db2; font-size:10px; line-height:1.45; }
+.analysis-preview { display:grid; gap:6px; padding:8px; border:1px solid #51405e; border-radius:8px; background:#0e0b11; }
+.analysis-preview-row { display:grid; grid-template-columns:90px 64px 105px 1fr 1fr 42px; gap:4px; }
+.analysis-preview-row select,.analysis-preview-row input,.analysis-preview-row button { min-width:0; height:28px; border:1px solid #55445f; border-radius:5px; background:#17111c; color:#eee3f5; font-size:9px; }
 .analysis-save-message { margin:0; border-radius:6px; padding:7px 9px; font-size:11px; }
 .analysis-save-message.saved { background:#123523; color:#9af0bd; }
 .analysis-save-message.error { background:#3b151c; color:#ff9aa7; }

@@ -82,7 +82,7 @@ async function activeSignals(now = Date.now()) {
   if (!db) return [];
   const result = await db.prepare(`SELECT id, analysis_id, publish_at, analysis_at, expires_at, source_type, pair, stance,
       level_low, level_high, trigger, condition_text, invalidation_text, source_excerpt, message
-    FROM analysis_signals WHERE publish_at <= ? AND expires_at > ? ORDER BY publish_at DESC LIMIT 80`).bind(now, now).all<{
+    FROM analysis_signals WHERE status = 'ACTIVE' AND price_role <> 'CURRENT' AND publish_at <= ? AND expires_at > ? ORDER BY publish_at DESC LIMIT 80`).bind(now, now).all<{
       id: string; analysis_id: string; publish_at: number; analysis_at: number; expires_at: number; source_type: AnalysisSourceType;
       pair: string; stance: AnalysisStance; level_low: number; level_high: number; trigger: string; condition_text: string;
       invalidation_text: string; source_excerpt: string; message: string;
@@ -105,13 +105,13 @@ async function activeSignals(now = Date.now()) {
     expiresAt: item.expires_at,
   }));
   const legacy = await db.prepare(`SELECT id, publish_at, analysis_at, expires_at, pair, stance, body
-    FROM market_analyses a WHERE publish_at <= ? AND expires_at > ?
+    FROM market_analyses a WHERE status = 'ACTIVE' AND publish_at <= ? AND expires_at > ?
       AND NOT EXISTS (SELECT 1 FROM analysis_signals s WHERE s.analysis_id = a.id)
     ORDER BY publish_at DESC LIMIT 10`).bind(now, now).all<{
       id: string; publish_at: number; analysis_at: number; expires_at: number; pair: string; stance: AnalysisStance; body: string;
     }>();
   const compatibility = (legacy.results ?? []).flatMap((analysis) =>
-    extractAnalysisSignals({ body: analysis.body, pair: analysis.pair, stance: analysis.stance, sourceType: "SHISHIN" })
+    extractAnalysisSignals({ body: analysis.body, pair: analysis.pair, stance: analysis.stance, sourceType: "SHISHIN" }).filter((signal) => signal.priceRole !== "CURRENT")
       .map((signal, index) => ({
         id: `legacy:${analysis.id}:${index}`,
         analysisId: analysis.id,
@@ -255,43 +255,52 @@ export async function POST(request: Request) {
   try { payload = await request.json() as Record<string, unknown>; }
   catch { return NextResponse.json({ error: "JSON形式が不正です" }, { status: 400 }); }
 
-  const pair = normalizedText(payload.pair, 12);
-  const stance = normalizedText(payload.stance, 4) as AnalysisStance;
+  const action = normalizedText(payload.action, 16) || "register";
   const sourceType = normalizedText(payload.sourceType, 12) as AnalysisSourceType || "SHISHIN";
   const headline = normalizedText(payload.headline, 120);
   const body = normalizedBody(payload.body, 8000);
-  const analysisAt = asTimestamp(payload.analysisAt);
-  const publishAt = asTimestamp(payload.publishAt);
-  const expiresAt = asTimestamp(payload.expiresAt);
   const now = Date.now();
-  if (!SUPPORTED_PAIRS.has(pair) || !["BUY", "SELL", "WAIT"].includes(stance) || !SOURCE_TYPES.has(sourceType) || !headline || body.length < 10) {
-    return NextResponse.json({ error: "ペア・判断・見出し・本文を確認してください" }, { status: 400 });
-  }
+  const analysisAt = Number.isFinite(asTimestamp(payload.analysisAt)) ? asTimestamp(payload.analysisAt) : now;
+  const publishAt = Number.isFinite(asTimestamp(payload.publishAt)) ? asTimestamp(payload.publishAt) : now;
+  const expiresAt = Number.isFinite(asTimestamp(payload.expiresAt)) ? asTimestamp(payload.expiresAt) : analysisAt + 24 * 60 * 60 * 1000;
+  const sourceLabel = normalizedText(payload.sourceLabel, 80) || (/ローソク/.test(body) ? "ローソクさん" : /くにお/.test(body) ? "くにおさん" : /REDFOX/i.test(body) ? "REDFOX" : sourceType === "SHISHIN" ? "神様相場分析" : sourceType === "YOUTUBE" ? "YouTube研究" : "その他分析");
+  if (!SOURCE_TYPES.has(sourceType) || body.length < 10) return NextResponse.json({ error: "情報源と原稿を確認してください" }, { status: 400 });
   if (![analysisAt, publishAt, expiresAt].every(Number.isFinite)
     || analysisAt > now + 60_000 || now - analysisAt > MAX_ANALYSIS_AGE_MS
     || publishAt < now - 5 * 60_000 || publishAt > expiresAt
     || expiresAt - analysisAt > MAX_ANALYSIS_LIFETIME_MS) {
     return NextResponse.json({ error: "分析基準時刻・配信日時・有効期限の関係が不正、または分析が古すぎます" }, { status: 400 });
   }
-  const key = await dedupeKey([pair, stance, String(analysisAt), headline, body]);
+  const extracted = extractAnalysisSignals({ body, sourceType });
+  if (action === "preview") return NextResponse.json({ extractedSignals: extracted, suggested: { analysisAt, publishAt, expiresAt, sourceLabel } });
+  const reviewed = Array.isArray(payload.signals) ? payload.signals : extracted;
+  const signals = reviewed.flatMap((value) => {
+    if (!value || typeof value !== "object") return [];
+    const item = value as Record<string, unknown>;
+    const pair = normalizedText(item.pair, 12);
+    const stance = normalizedText(item.stance, 4) as AnalysisStance;
+    const levelLow = Number(item.levelLow); const levelHigh = Number(item.levelHigh);
+    if (!SUPPORTED_PAIRS.has(pair) || pair === "FX" || !["BUY", "SELL", "WAIT"].includes(stance) || !Number.isFinite(levelLow) || !Number.isFinite(levelHigh)) return [];
+    return [{ ...item, pair, stance, levelLow, levelHigh } as (typeof extracted)[number]];
+  });
+  const key = await dedupeKey([sourceType, sourceLabel, String(analysisAt), headline, body]);
   const id = crypto.randomUUID();
-  const signals = extractAnalysisSignals({ body, pair, stance, sourceType });
   try {
     const db = await database();
     if (!db) return NextResponse.json({ error: "原稿保存先を利用できません" }, { status: 503 });
     const statements = [db.prepare(`INSERT INTO market_analyses
-      (id, created_at, created_by, publish_at, analysis_at, expires_at, pair, stance, headline, body, dedupe_key)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(id, now, authorization.user.email, publishAt, analysisAt, expiresAt, pair, stance, headline, body, key)];
+      (id, created_at, created_by, publish_at, analysis_at, expires_at, pair, stance, headline, body, source_type, source_label, status, retention_days, dedupe_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)`)
+      .bind(id, now, authorization.user.email, publishAt, analysisAt, expiresAt, "FX", "WAIT", headline || sourceLabel, body, sourceType, sourceLabel, 90, key)];
     for (const signal of signals) {
       const signalKey = await dedupeKey([sourceType, signal.pair, String(signal.levelLow), String(signal.levelHigh), signal.trigger, signal.conditionText, String(expiresAt)]);
       statements.push(db.prepare(`INSERT OR IGNORE INTO analysis_signals
         (id, analysis_id, created_at, publish_at, analysis_at, expires_at, source_type, pair, stance, level_low, level_high,
-          trigger, condition_text, invalidation_text, source_excerpt, message, dedupe_key)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          trigger, condition_text, invalidation_text, source_excerpt, message, environment, price_role, status, dedupe_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)`)
         .bind(crypto.randomUUID(), id, now, publishAt, analysisAt, expiresAt, sourceType, signal.pair, signal.stance,
           signal.levelLow, signal.levelHigh, signal.trigger, signal.conditionText, signal.invalidationText,
-          signal.sourceExcerpt, signal.message, signalKey));
+          signal.sourceExcerpt, signal.message, signal.environment, signal.priceRole, signalKey));
     }
     await db.batch(statements);
   } catch (error) {

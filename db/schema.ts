@@ -11,6 +11,10 @@ export const marketAnalyses = sqliteTable("market_analyses", {
   stance: text("stance", { enum: ["BUY", "SELL", "WAIT"] }).notNull(),
   headline: text("headline").notNull(),
   body: text("body").notNull(),
+  sourceType: text("source_type", { enum: ["SHISHIN", "YOUTUBE", "OTHER"] }).notNull().default("SHISHIN"),
+  sourceLabel: text("source_label").notNull().default(""),
+  status: text("status", { enum: ["ACTIVE", "HOLD", "INVALID", "EXPIRED", "ARCHIVED"] }).notNull().default("ACTIVE"),
+  retentionDays: integer("retention_days").notNull().default(90),
   dedupeKey: text("dedupe_key").notNull(),
 }, (table) => [uniqueIndex("market_analyses_dedupe_key_unique").on(table.dedupeKey)]);
 
@@ -31,5 +35,8 @@ export const analysisSignals = sqliteTable("analysis_signals", {
   invalidationText: text("invalidation_text").notNull(),
   sourceExcerpt: text("source_excerpt").notNull(),
   message: text("message").notNull(),
+  environment: text("environment").notNull().default("UNKNOWN"),
+  priceRole: text("price_role").notNull().default("WATCH"),
+  status: text("status", { enum: ["ACTIVE", "HOLD", "INVALID", "EXPIRED", "ARCHIVED"] }).notNull().default("ACTIVE"),
   dedupeKey: text("dedupe_key").notNull(),
 }, (table) => [uniqueIndex("analysis_signals_dedupe_key_unique").on(table.dedupeKey)]);

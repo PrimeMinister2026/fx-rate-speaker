@@ -159,7 +159,7 @@ function localDateTimeInput(timestamp: number) {
 
 function freshAnalysisDraft(): AnalysisDraft {
   const now = Date.now();
-  return { sourceType: "SHISHIN", pair: "USD/JPY", stance: "WAIT", headline: "", body: "", analysisAt: localDateTimeInput(now), publishAt: localDateTimeInput(now), expiresAt: localDateTimeInput(now + 6 * 60 * 60 * 1000) };
+  return { sourceType: "SHISHIN", sourceLabel: "", headline: "", body: "", analysisAt: localDateTimeInput(now), publishAt: localDateTimeInput(now), expiresAt: localDateTimeInput(now + 24 * 60 * 60 * 1000) };
 }
 
 type Rate = { price: number; timestamp: number };
@@ -240,10 +240,12 @@ type NavigationSignal = {
   pair: string; stance: "BUY" | "SELL" | "WAIT"; levelLow: number; levelHigh: number;
   trigger: "APPROACH" | "CROSS_ABOVE" | "CROSS_BELOW" | "REBOUND" | "REJECTION";
   conditionText: string; invalidationText: string; sourceExcerpt: string; message: string;
+  environment?: "UP" | "DOWN" | "RANGE" | "UNKNOWN";
+  priceRole?: "CURRENT" | "ENTRY" | "TARGET" | "TAKE_PROFIT" | "STOP_LOSS" | "INVALIDATION" | "SUPPORT" | "RESISTANCE" | "WATCH";
   publishAt: number; analysisAt: number; expiresAt: number;
 };
 type NewsResponse = { news?: NewsItem[]; signals?: NavigationSignal[]; error?: string; sourcesOk?: number; sourcesTotal?: number };
-type AnalysisDraft = { sourceType: "SHISHIN" | "YOUTUBE" | "OTHER"; pair: string; stance: "BUY" | "SELL" | "WAIT"; headline: string; body: string; analysisAt: string; publishAt: string; expiresAt: string };
+type AnalysisDraft = { sourceType: "SHISHIN" | "YOUTUBE" | "OTHER"; sourceLabel: string; headline: string; body: string; analysisAt: string; publishAt: string; expiresAt: string };
 type CalendarEvent = {
   id: string;
   title: string;
@@ -959,6 +961,8 @@ export default function Home() {
   const [commentaryHistory, setCommentaryHistory] = useState<CommentaryEntry[]>([]);
   const [analysisEditorOpen, setAnalysisEditorOpen] = useState(false);
   const [analysisDraft, setAnalysisDraft] = useState<AnalysisDraft>(() => freshAnalysisDraft());
+  const [analysisPreview, setAnalysisPreview] = useState<NavigationSignal[]>([]);
+  const [analysisReviewed, setAnalysisReviewed] = useState(false);
   const [analysisSaveState, setAnalysisSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [analysisSaveMessage, setAnalysisSaveMessage] = useState("");
   const [newsStatus, setNewsStatus] = useState<"idle" | "receiving" | "error">("idle");
@@ -1863,18 +1867,36 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...analysisDraft,
+          action: analysisReviewed ? "register" : "preview",
+          signals: analysisPreview,
           analysisAt: new Date(analysisDraft.analysisAt).toISOString(),
           publishAt: new Date(analysisDraft.publishAt).toISOString(),
           expiresAt: new Date(analysisDraft.expiresAt).toISOString(),
         }),
       });
-      const data = await response.json() as { error?: string; extractedSignals?: NavigationSignal[] };
+      const data = await response.json() as { error?: string; extractedSignals?: NavigationSignal[]; suggested?: { analysisAt?: number; publishAt?: number; expiresAt?: number; sourceLabel?: string } };
       if (!response.ok) throw new Error(data.error || "原稿を登録できませんでした");
+      if (!analysisReviewed) {
+        setAnalysisPreview(data.extractedSignals ?? []);
+        setAnalysisReviewed(true);
+        if (data.suggested) setAnalysisDraft((draft) => ({
+          ...draft,
+          sourceLabel: data.suggested?.sourceLabel ?? draft.sourceLabel,
+          analysisAt: data.suggested?.analysisAt ? localDateTimeInput(data.suggested.analysisAt) : draft.analysisAt,
+          publishAt: data.suggested?.publishAt ? localDateTimeInput(data.suggested.publishAt) : draft.publishAt,
+          expiresAt: data.suggested?.expiresAt ? localDateTimeInput(data.suggested.expiresAt) : draft.expiresAt,
+        }));
+        setAnalysisSaveState("idle");
+        setAnalysisSaveMessage(data.extractedSignals?.length ? "抽出結果を確認・訂正してから登録してください。" : "価格情報を抽出できませんでした。原稿だけを保存できます。");
+        return;
+      }
       setAnalysisSaveState("saved");
       setAnalysisSaveMessage(data.extractedSignals?.length
         ? `${data.extractedSignals.length}件の明記された価格情報を登録しました。対象水準への接近時に案内します。`
         : "原稿は保存しましたが、明記された有効な価格情報を抽出できませんでした。全文の自動読み上げは行いません。");
       setAnalysisDraft(freshAnalysisDraft());
+      setAnalysisPreview([]);
+      setAnalysisReviewed(false);
       if (runningRef.current && audioModeFeatures(audioModeRef.current).news) void pollNews(runIdRef.current);
     } catch (error) {
       setAnalysisSaveState("error");
@@ -2560,12 +2582,16 @@ export default function Home() {
       const pipSize = signal.pair.endsWith("/JPY") ? 0.01 : 0.0001;
       const distance = current! < signal.levelLow ? signal.levelLow - current! : current! > signal.levelHigh ? current! - signal.levelHigh : 0;
       const isApproaching = distance <= 10 * pipSize;
+      const conflict = navigationSignalsRef.current.find((other) => other.id !== signal.id && other.pair === signal.pair
+        && other.expiresAt > now && ((signal.stance === "BUY" && other.stance === "SELL") || (signal.stance === "SELL" && other.stance === "BUY"))
+        && Math.abs(other.levelLow - signal.levelLow) <= 10 * pipSize);
+      if (conflict && signal.id.localeCompare(conflict.id) > 0) return;
       const conditionMet = signal.trigger === "CROSS_ABOVE" ? previous !== undefined && previous <= signal.levelHigh && current! > signal.levelHigh
         : signal.trigger === "CROSS_BELOW" ? previous !== undefined && previous >= signal.levelLow && current! < signal.levelLow
           : signal.trigger === "REBOUND" ? previous !== undefined && previous < signal.levelLow && current! >= signal.levelLow
             : signal.trigger === "REJECTION" ? previous !== undefined && previous > signal.levelHigh && current! <= signal.levelHigh
               : isApproaching;
-      const event = conditionMet && signal.trigger !== "APPROACH" ? signal.trigger : isApproaching ? "APPROACH" : null;
+      const event = conflict && isApproaching ? "CONFLICT" : conditionMet && signal.trigger !== "APPROACH" ? signal.trigger : isApproaching ? "APPROACH" : null;
       if (!event) return;
       const key = `${signal.id}:${event}`;
       const lastAt = navigationAlertedRef.current.get(key) ?? 0;
@@ -2573,7 +2599,8 @@ export default function Home() {
       rememberNavigationAlert(key, now);
       const price = displayPrice(current!, signal.pair.endsWith("/JPY"));
       const invalidationEvent = event !== "APPROACH" && /失効|無効|損切り|撤退|シナリオ.*崩/.test(signal.conditionText);
-      const suffix = event === "APPROACH" ? `現在${price}。接近のみで、エントリー成立ではありません。`
+      const suffix = event === "CONFLICT" ? `現在${price}。買いと売りの見解が対立しているため、売買判断を見送ります。`
+        : event === "APPROACH" ? `現在${price}。接近のみで、エントリー成立ではありません。`
         : invalidationEvent ? `現在${price}。シナリオ失効条件の候補です。`
           : `現在${price}。条件変化です。エントリーは追加確認が必要です。`;
       entries.push({
@@ -2581,7 +2608,7 @@ export default function Home() {
         timestamp: now,
         source: "ANALYSIS",
         pair: signal.pair,
-        kind: event === "APPROACH" ? "注目水準接近" : invalidationEvent ? "失効条件" : "条件変化",
+        kind: event === "CONFLICT" ? "見解対立" : event === "APPROACH" ? "注目水準接近" : invalidationEvent ? "失効条件" : "条件変化",
         text: `${signal.message.slice(0, 72)} ${suffix}`.slice(0, 120),
         headline: `${signal.sourceType === "SHISHIN" ? "四神" : signal.sourceType === "YOUTUBE" ? "動画分析" : "相場分析"}｜基準 ${new Date(signal.analysisAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}`,
         level: event === "APPROACH" ? "normal" : "important",
@@ -3502,22 +3529,26 @@ export default function Home() {
               <label><span>出典</span><select value={analysisDraft.sourceType} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, sourceType: event.target.value as AnalysisDraft["sourceType"] }))}>
                 <option value="SHISHIN">神様相場分析</option><option value="YOUTUBE">YouTube研究</option><option value="OTHER">その他分析</option>
               </select></label>
-              <label><span>通貨ペア</span><select value={analysisDraft.pair} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, pair: event.target.value }))}>
-                <option value="FX">市場全体</option>{PAIRS.map((pair) => <option key={pair.code} value={pair.code}>{pair.code}</option>)}
-              </select></label>
-              <fieldset><legend>判断</legend><div className="analysis-stance">
-                {(["BUY", "SELL", "WAIT"] as const).map((stance) => <button key={stance} type="button" className={analysisDraft.stance === stance ? `chosen ${stance.toLowerCase()}` : stance.toLowerCase()}
-                  onClick={() => setAnalysisDraft((draft) => ({ ...draft, stance }))}>{stance}</button>)}
-              </div></fieldset>
-              <label className="wide"><span>見出し</span><input required maxLength={120} value={analysisDraft.headline} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, headline: event.target.value }))} placeholder="例：東京市場前のドル円戦略" /></label>
+              <label><span>情報源名（任意）</span><input maxLength={80} value={analysisDraft.sourceLabel} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, sourceLabel: event.target.value }))} placeholder="例：ローソクさん" /></label>
+              <label className="wide"><span>見出し（任意）</span><input maxLength={120} value={analysisDraft.headline} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, headline: event.target.value }))} /></label>
               <label className="wide"><span>原稿</span><textarea required minLength={10} maxLength={8000} rows={7} value={analysisDraft.body} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, body: event.target.value }))} placeholder="確認済みの相場情報と条件付きの見通しを入力" /></label>
-              <label><span>分析基準時刻</span><input type="datetime-local" required value={analysisDraft.analysisAt} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, analysisAt: event.target.value }))} /></label>
-              <label><span>配信日時</span><input type="datetime-local" required value={analysisDraft.publishAt} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, publishAt: event.target.value }))} /></label>
-              <label><span>有効期限</span><input type="datetime-local" required value={analysisDraft.expiresAt} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, expiresAt: event.target.value }))} /></label>
+              <details className="wide"><summary>日時・保存設定を修正</summary><div className="analysis-editor-grid">
+                <label><span>分析基準時刻</span><input type="datetime-local" required value={analysisDraft.analysisAt} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, analysisAt: event.target.value }))} /></label>
+                <label><span>配信日時</span><input type="datetime-local" required value={analysisDraft.publishAt} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, publishAt: event.target.value }))} /></label>
+                <label><span>有効期限</span><input type="datetime-local" required value={analysisDraft.expiresAt} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, expiresAt: event.target.value }))} /></label>
+              </div></details>
             </div>
-            <p className="analysis-editor-note">原文に明記された価格だけを抽出します。BUY／SELLは相場分析上の目線であり、価格接近だけではエントリー成立と判定しません。</p>
+            {analysisReviewed && <div className="analysis-preview"><strong>抽出結果</strong>{analysisPreview.map((signal, index) => <div className="analysis-preview-row" key={`${signal.pair}-${index}`}>
+              <select value={signal.pair} onChange={(event) => setAnalysisPreview((items) => items.map((item, i) => i === index ? { ...item, pair: event.target.value } : item))}>{PAIRS.map((pair) => <option key={pair.code}>{pair.code}</option>)}</select>
+              <select value={signal.stance} onChange={(event) => setAnalysisPreview((items) => items.map((item, i) => i === index ? { ...item, stance: event.target.value as NavigationSignal["stance"] } : item))}><option>BUY</option><option>SELL</option><option>WAIT</option></select>
+              <select value={signal.priceRole ?? "WATCH"} onChange={(event) => setAnalysisPreview((items) => items.map((item, i) => i === index ? { ...item, priceRole: event.target.value as NavigationSignal["priceRole"] } : item))}>{["CURRENT","ENTRY","TARGET","TAKE_PROFIT","STOP_LOSS","INVALIDATION","SUPPORT","RESISTANCE","WATCH"].map((role) => <option key={role}>{role}</option>)}</select>
+              <input type="number" step="0.00001" value={signal.levelLow} onChange={(event) => setAnalysisPreview((items) => items.map((item, i) => i === index ? { ...item, levelLow: Number(event.target.value) } : item))} />
+              <input type="number" step="0.00001" value={signal.levelHigh} onChange={(event) => setAnalysisPreview((items) => items.map((item, i) => i === index ? { ...item, levelHigh: Number(event.target.value) } : item))} />
+              <button type="button" onClick={() => setAnalysisPreview((items) => items.filter((_, i) => i !== index))}>削除</button>
+            </div>)}</div>}
+            <p className="analysis-editor-note">通貨ペアと方向は原稿から抽出します。価格の役割を確認・訂正してから登録してください。価格到達だけではエントリー成立と判定しません。</p>
             {analysisSaveMessage && <p className={`analysis-save-message ${analysisSaveState}`}>{analysisSaveMessage}</p>}
-            <footer><button type="button" onClick={() => setAnalysisEditorOpen(false)} disabled={analysisSaveState === "saving"}>閉じる</button><button className="analysis-save" type="submit" disabled={analysisSaveState === "saving"}>{analysisSaveState === "saving" ? "登録中…" : "原稿を登録"}</button></footer>
+            <footer><button type="button" onClick={() => setAnalysisEditorOpen(false)} disabled={analysisSaveState === "saving"}>閉じる</button><button className="analysis-save" type="submit" disabled={analysisSaveState === "saving"}>{analysisSaveState === "saving" ? "処理中…" : analysisReviewed ? "確認して登録" : "抽出内容を確認"}</button></footer>
           </form>
         </div>
       )}
