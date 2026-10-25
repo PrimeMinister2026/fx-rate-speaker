@@ -5,10 +5,19 @@ import { readFile } from "node:fs/promises";
 const developmentPreviewMeta =
   /<meta(?=[^>]*\bname=["']codex-preview["'])(?=[^>]*\bcontent=["']development["'])[^>]*>/i;
 
-test("renders development preview metadata", async () => {
+test("renders development preview metadata", async (t) => {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
+  let worker;
+  try {
+    ({ default: worker } = await import(workerUrl.href));
+  } catch (error) {
+    if (error?.code === "ERR_UNSUPPORTED_ESM_URL_SCHEME") {
+      t.skip("Node cannot load the Cloudflare D1 runtime scheme used by the built Worker");
+      return;
+    }
+    throw error;
+  }
 
   const response = await worker.fetch(
     new Request("http://localhost/", {
@@ -32,7 +41,7 @@ test("renders development preview metadata", async () => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v120<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v121<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -368,20 +377,34 @@ test("v114 stores compact positions and appends their P/L speech in both audio m
   assert.match(page, /window\.localStorage\.setItem\(POSITIONS_STORAGE_KEY, JSON\.stringify\(next\)\)/);
   assert.match(page, /positionSpeech: positionsRef\.current\[code\]/);
   assert.match(page, /if \(item\.positionSpeech\) await playSpeech\(item\.positionSpeech, runId\)/);
-  assert.match(page, /className=\{`position-brief/);
-  assert.match(page, /className="position-editor"/);
+  assert.match(page, /className="position-entry"/);
+  assert.match(page, /className=\{`position-pips/);
   assert.match(page, />解除<\/button>/);
-  assert.match(styles, /\.position-brief \{/);
-  assert.match(styles, /\.position-brief em\.profit \{ color:#72e6a3/);
-  assert.match(styles, /\.position-brief em\.loss \{ color:#ff7e8d/);
+  assert.match(styles, /\.position-pips \{/);
+  assert.match(styles, /\.position-pips\.profit \{ color:#72e6a3/);
+  assert.match(styles, /\.position-pips\.loss \{ color:#ff7e8d/);
   assert.match(page, /mode4: Object\.freeze\([\s\S]*mode5: Object\.freeze/);
+});
+
+test("v121 registers authenticated expiring Shishin analysis and reuses the news audio queue", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const route = await readFile(new URL("../app/api/news/route.ts", import.meta.url), "utf8");
+  const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
+  assert.match(page, /SHISHIN MARKET ANALYSIS/);
+  assert.match(page, /manualAnalysis/);
+  assert.match(page, /pendingNewsRef\.current/);
+  assert.match(route, /requireAnalysisAdmin/);
+  assert.match(route, /FXRS_ADMIN_EMAILS/);
+  assert.match(route, /expires_at > \?/);
+  assert.match(route, /dedupe_key/);
+  assert.match(schema, /uniqueIndex\("market_analyses_dedupe_key_unique"\)/);
 });
 
 test("v118 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 120/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 121/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);

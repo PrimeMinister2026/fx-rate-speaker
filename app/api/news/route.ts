@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
+import { getChatGPTUser } from "@/app/chatgpt-auth";
 
 export const dynamic = "force-dynamic";
 
 type NewsLevel = "NEWS_L1" | "NEWS_L2" | "NEWS_L3";
+type AnalysisStance = "BUY" | "SELL" | "WAIT";
+const SUPPORTED_PAIRS = new Set(["USD/JPY", "EUR/USD", "GBP/USD", "AUD/USD", "EUR/JPY", "GBP/JPY", "AUD/JPY", "EUR/GBP", "EUR/AUD", "GBP/AUD", "FX"]);
+const MAX_ANALYSIS_AGE_MS = 24 * 60 * 60 * 1000;
+const MAX_ANALYSIS_LIFETIME_MS = 72 * 60 * 60 * 1000;
 
 type FeedDefinition = {
   name: string;
@@ -25,6 +30,68 @@ const FX_RELEVANT = /\b(FOMC|Federal Reserve|Fed|Bank of Japan|ECB|European Cent
 let cachedNews: Awaited<ReturnType<typeof fetchFeed>> | null = null;
 let cachedAt = 0;
 let cachedSourcesOk = 0;
+
+async function database() {
+  try {
+    const cloudflare = await import("cloudflare:workers");
+    return cloudflare.env.DB ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function adminEmails() {
+  return new Set((process.env.FXRS_ADMIN_EMAILS ?? "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean));
+}
+
+async function requireAnalysisAdmin() {
+  const user = await getChatGPTUser();
+  if (!user) return { error: NextResponse.json({ error: "認証が必要です" }, { status: 401 }) };
+  if (!adminEmails().has(user.email.toLowerCase())) {
+    return { error: NextResponse.json({ error: "原稿を登録する権限がありません" }, { status: 403 }) };
+  }
+  return { user };
+}
+
+function asTimestamp(value: unknown) {
+  if (typeof value !== "string" && typeof value !== "number") return NaN;
+  const parsed = typeof value === "number" ? value : Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+function normalizedText(value: unknown, maximum: number) {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, maximum) : "";
+}
+
+async function dedupeKey(parts: string[]) {
+  const bytes = new TextEncoder().encode(parts.join("\n").toLowerCase());
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function activeAnalyses(now = Date.now()) {
+  const db = await database();
+  if (!db) return [];
+  const result = await db.prepare(`SELECT id, publish_at, analysis_at, expires_at, pair, stance, headline, body
+    FROM market_analyses WHERE publish_at <= ? AND expires_at > ? ORDER BY publish_at DESC LIMIT 30`).bind(now, now).all<{
+      id: string; publish_at: number; analysis_at: number; expires_at: number; pair: string; stance: AnalysisStance; headline: string; body: string;
+    }>();
+  return (result.results ?? []).map((item) => ({
+    id: `SHISHIN:${item.id}`,
+    source: "四神相場分析",
+    title: item.headline,
+    summary: item.body,
+    url: "",
+    publishedAt: item.publish_at,
+    currencies: item.pair === "FX" ? [] : item.pair.split("/"),
+    level: "NEWS_L2" as const,
+    analysisAt: item.analysis_at,
+    expiresAt: item.expires_at,
+    pair: item.pair,
+    stance: item.stance,
+    manualAnalysis: true,
+  }));
+}
 
 function decodeXml(value: string) {
   return value
@@ -124,8 +191,9 @@ async function fetchFeed(feed: FeedDefinition) {
 }
 
 export async function GET() {
+  const analyses = await activeAnalyses();
   if (cachedNews && Date.now() - cachedAt < UPSTREAM_CACHE_MS) {
-    return NextResponse.json({ news: cachedNews, fetchedAt: cachedAt, sourcesOk: cachedSourcesOk, sourcesTotal: FEEDS.length, cache: "memory" }, {
+    return NextResponse.json({ news: [...analyses, ...cachedNews].sort((a, b) => b.publishedAt - a.publishedAt).slice(0, 30), fetchedAt: cachedAt, sourcesOk: cachedSourcesOk, sourcesTotal: FEEDS.length, cache: "memory" }, {
       headers: { "Cache-Control": "public, max-age=30, s-maxage=60, stale-while-revalidate=180" },
     });
   }
@@ -137,12 +205,54 @@ export async function GET() {
     .slice(0, 30);
   const sourcesOk = settled.filter((result) => result.status === "fulfilled").length;
   if (!sourcesOk) {
+    if (analyses.length) return NextResponse.json({ news: analyses, fetchedAt: Date.now(), sourcesOk: 0, sourcesTotal: FEEDS.length });
     return NextResponse.json({ error: "NEWS取得元へ接続できませんでした", news: [], sourcesOk: 0 }, { status: 503 });
   }
   cachedNews = news;
   cachedAt = Date.now();
   cachedSourcesOk = sourcesOk;
-  return NextResponse.json({ news, fetchedAt: Date.now(), sourcesOk, sourcesTotal: FEEDS.length }, {
+  return NextResponse.json({ news: [...analyses, ...news].sort((a, b) => b.publishedAt - a.publishedAt).slice(0, 30), fetchedAt: Date.now(), sourcesOk, sourcesTotal: FEEDS.length }, {
     headers: { "Cache-Control": "public, max-age=30, s-maxage=60, stale-while-revalidate=180" },
   });
+}
+
+export async function POST(request: Request) {
+  const authorization = await requireAnalysisAdmin();
+  if (authorization.error) return authorization.error;
+  let payload: Record<string, unknown>;
+  try { payload = await request.json() as Record<string, unknown>; }
+  catch { return NextResponse.json({ error: "JSON形式が不正です" }, { status: 400 }); }
+
+  const pair = normalizedText(payload.pair, 12);
+  const stance = normalizedText(payload.stance, 4) as AnalysisStance;
+  const headline = normalizedText(payload.headline, 120);
+  const body = normalizedText(payload.body, 1800);
+  const analysisAt = asTimestamp(payload.analysisAt);
+  const publishAt = asTimestamp(payload.publishAt);
+  const expiresAt = asTimestamp(payload.expiresAt);
+  const now = Date.now();
+  if (!SUPPORTED_PAIRS.has(pair) || !["BUY", "SELL", "WAIT"].includes(stance) || !headline || body.length < 10) {
+    return NextResponse.json({ error: "ペア・判断・見出し・本文を確認してください" }, { status: 400 });
+  }
+  if (![analysisAt, publishAt, expiresAt].every(Number.isFinite)
+    || analysisAt > now + 60_000 || now - analysisAt > MAX_ANALYSIS_AGE_MS
+    || publishAt < now - 5 * 60_000 || publishAt > expiresAt
+    || expiresAt - analysisAt > MAX_ANALYSIS_LIFETIME_MS) {
+    return NextResponse.json({ error: "分析基準時刻・配信日時・有効期限の関係が不正、または分析が古すぎます" }, { status: 400 });
+  }
+  const key = await dedupeKey([pair, stance, String(analysisAt), headline, body]);
+  const id = crypto.randomUUID();
+  try {
+    const db = await database();
+    if (!db) return NextResponse.json({ error: "原稿保存先を利用できません" }, { status: 503 });
+    await db.prepare(`INSERT INTO market_analyses
+      (id, created_at, created_by, publish_at, analysis_at, expires_at, pair, stance, headline, body, dedupe_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(id, now, authorization.user.email, publishAt, analysisAt, expiresAt, pair, stance, headline, body, key).run();
+  } catch (error) {
+    if (String(error).toLowerCase().includes("unique")) return NextResponse.json({ error: "同じ原稿はすでに登録されています" }, { status: 409 });
+    console.error("FX Rate Speaker analysis registration failed", error);
+    return NextResponse.json({ error: "原稿を保存できませんでした" }, { status: 500 });
+  }
+  return NextResponse.json({ id, registeredAt: now }, { status: 201, headers: { "Cache-Control": "no-store" } });
 }

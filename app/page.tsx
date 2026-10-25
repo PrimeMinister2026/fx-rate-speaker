@@ -150,6 +150,16 @@ const MARKET_VOLATILITY_THRESHOLDS = {
   level5MajorV5Pairs: 2,
 } as const;
 
+function localDateTimeInput(timestamp: number) {
+  const date = new Date(timestamp - new Date(timestamp).getTimezoneOffset() * 60_000);
+  return date.toISOString().slice(0, 16);
+}
+
+function freshAnalysisDraft(): AnalysisDraft {
+  const now = Date.now();
+  return { pair: "USD/JPY", stance: "WAIT", headline: "", body: "", analysisAt: localDateTimeInput(now), publishAt: localDateTimeInput(now), expiresAt: localDateTimeInput(now + 6 * 60 * 60 * 1000) };
+}
+
 type Rate = { price: number; timestamp: number };
 type RateMap = Record<string, Rate>;
 type RateSource = "OANDA" | "OANDA_SYNTHETIC" | "YAHOO";
@@ -192,7 +202,7 @@ const AUDIO_EVENT_PRIORITY: Record<LeadSound, number> = {
 type CommentaryEntry = {
   id: string;
   timestamp: number;
-  source: "COMMENTARY" | "NEWS" | "CAUSE";
+  source: "COMMENTARY" | "NEWS" | "CAUSE" | "ANALYSIS";
   pair: string;
   kind: string;
   text: string;
@@ -203,6 +213,9 @@ type CommentaryEntry = {
   headline?: string;
   url?: string;
   confidence?: CauseConfidence;
+  analysisAt?: number;
+  expiresAt?: number;
+  stance?: "BUY" | "SELL" | "WAIT";
 };
 type NewsItem = {
   id: string;
@@ -214,8 +227,14 @@ type NewsItem = {
   currencies: string[];
   level: NewsLevel;
   explicitMarketCause?: boolean;
+  analysisAt?: number;
+  expiresAt?: number;
+  pair?: string;
+  stance?: "BUY" | "SELL" | "WAIT";
+  manualAnalysis?: boolean;
 };
 type NewsResponse = { news?: NewsItem[]; error?: string; sourcesOk?: number; sourcesTotal?: number };
+type AnalysisDraft = { pair: string; stance: "BUY" | "SELL" | "WAIT"; headline: string; body: string; analysisAt: string; publishAt: string; expiresAt: string };
 type CalendarEvent = {
   id: string;
   title: string;
@@ -919,7 +938,7 @@ export default function Home() {
   const [rates, setRates] = useState<RateMap>({});
   const [positions, setPositions] = useState<PositionMap>({});
   const positionsRef = useRef<PositionMap>({});
-  const [positionEditor, setPositionEditor] = useState<{ pair: string; side: PositionSide; entryPrice: string } | null>(null);
+  const [positionEditor, setPositionEditor] = useState<{ pair: string; side: PositionSide; entryPrice: string }>({ pair: "USD/JPY", side: "BUY", entryPrice: "" });
   const [rateSources, setRateSources] = useState<Record<string, RateSource>>({});
   const [oandaStatus, setOandaStatus] = useState<"checking" | "connected" | "unconfigured" | "error" | "fallback">("checking");
   const [errors, setErrors] = useState<Record<string, boolean>>({});
@@ -929,6 +948,10 @@ export default function Home() {
   const [audioMode, setAudioMode] = useState<AudioMode>("mode4");
   const audioModeRef = useRef<AudioMode>("mode4");
   const [commentaryHistory, setCommentaryHistory] = useState<CommentaryEntry[]>([]);
+  const [analysisEditorOpen, setAnalysisEditorOpen] = useState(false);
+  const [analysisDraft, setAnalysisDraft] = useState<AnalysisDraft>(() => freshAnalysisDraft());
+  const [analysisSaveState, setAnalysisSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [analysisSaveMessage, setAnalysisSaveMessage] = useState("");
   const [newsStatus, setNewsStatus] = useState<"idle" | "receiving" | "error">("idle");
   const [calendarStatus, setCalendarStatus] = useState<"idle" | "receiving" | "error" | "stale">("idle");
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
@@ -1143,15 +1166,6 @@ export default function Home() {
     }
   }
 
-  function openPositionEditor(pair: string) {
-    const existing = positionsRef.current[pair];
-    setPositionEditor({
-      pair,
-      side: existing?.side ?? "BUY",
-      entryPrice: existing ? String(existing.entryPrice) : ratesRef.current[pair]?.price ? String(ratesRef.current[pair].price) : "",
-    });
-  }
-
   function persistPositions(next: PositionMap) {
     positionsRef.current = next;
     setPositions(next);
@@ -1163,21 +1177,14 @@ export default function Home() {
   }
 
   function savePosition() {
-    if (!positionEditor) return;
     const entryPrice = Number(positionEditor.entryPrice);
     if (!Number.isFinite(entryPrice) || entryPrice <= 0) return;
-    persistPositions({
-      ...positionsRef.current,
-      [positionEditor.pair]: { pair: positionEditor.pair, side: positionEditor.side, entryPrice },
-    });
-    setPositionEditor(null);
+    persistPositions({ [positionEditor.pair]: { pair: positionEditor.pair, side: positionEditor.side, entryPrice } });
   }
 
-  function clearPosition(pair: string) {
-    const next = { ...positionsRef.current };
-    delete next[pair];
-    persistPositions(next);
-    setPositionEditor(null);
+  function clearPosition() {
+    persistPositions({});
+    setPositionEditor((current) => ({ ...current, entryPrice: "" }));
   }
 
   function wait(milliseconds: number) {
@@ -1791,12 +1798,43 @@ export default function Home() {
   }
 
   function newsSpeechText(item: NewsItem) {
+    if (item.manualAnalysis && item.analysisAt && item.stance) {
+      const basis = new Date(item.analysisAt);
+      const stance = item.stance === "BUY" ? "買い目線" : item.stance === "SELL" ? "売り目線" : "待機";
+      return `四神相場分析です。分析基準${basis.getHours()}時${String(basis.getMinutes()).padStart(2, "0")}分。${item.pair ?? "FX"}、${stance}。${item.summary}`;
+    }
     const rapidPair = relatedRapidPair(item.currencies);
     const prefix = item.level === "NEWS_L3" ? "速報です。" : "";
     const relation = rapidPair
       ? `同時刻付近で、${rapidPair.name}の値動きが拡大しています。`
       : "";
     return `${prefix}${item.summary}${relation}`;
+  }
+
+  async function saveManualAnalysis() {
+    setAnalysisSaveState("saving");
+    setAnalysisSaveMessage("");
+    try {
+      const response = await fetch("/api/news", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...analysisDraft,
+          analysisAt: new Date(analysisDraft.analysisAt).toISOString(),
+          publishAt: new Date(analysisDraft.publishAt).toISOString(),
+          expiresAt: new Date(analysisDraft.expiresAt).toISOString(),
+        }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "原稿を登録できませんでした");
+      setAnalysisSaveState("saved");
+      setAnalysisSaveMessage("登録しました。配信時刻になるとNEWS欄へ入ります。");
+      setAnalysisDraft(freshAnalysisDraft());
+      if (runningRef.current && audioModeFeatures(audioModeRef.current).news) void pollNews(runIdRef.current);
+    } catch (error) {
+      setAnalysisSaveState("error");
+      setAnalysisSaveMessage(error instanceof Error ? error.message : "原稿を登録できませんでした");
+    }
   }
 
   function rememberNews(ids: string[]) {
@@ -1831,15 +1869,20 @@ export default function Home() {
         const entries = unseen.map<CommentaryEntry>((item) => ({
           id: item.id,
           timestamp: item.publishedAt,
-          source: "NEWS",
-          pair: item.currencies.join("・") || "FX",
-          kind: item.level.replace("NEWS_L", "NEWS "),
+          source: item.manualAnalysis ? "ANALYSIS" : "NEWS",
+          pair: item.pair ?? (item.currencies.join("・") || "FX"),
+          kind: item.manualAnalysis ? `四神 ${item.stance}` : item.level.replace("NEWS_L", "NEWS "),
           text: item.summary,
-          headline: item.title,
+          headline: item.manualAnalysis && item.analysisAt
+            ? `${item.title}｜基準 ${new Date(item.analysisAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}`
+            : item.title,
           url: item.url,
           level: item.level === "NEWS_L3" ? "rapid" : item.level === "NEWS_L2" ? "important" : "normal",
           currency: item.currencies.join("/"),
           importance: item.level,
+          analysisAt: item.analysisAt,
+          expiresAt: item.expiresAt,
+          stance: item.stance,
         }));
         setCommentaryHistory((current) => [...entries.reverse(), ...current].slice(0, COMMENTARY_HISTORY_RETENTION_LIMIT));
         const spoken = unseen.filter((item) => item.level !== "NEWS_L1" && Date.now() - item.publishedAt <= 15 * 60 * 1000);
@@ -1961,8 +2004,11 @@ export default function Home() {
           window.localStorage.getItem(POSITIONS_STORAGE_KEY),
           PAIRS.map((pair) => pair.code),
         );
-        positionsRef.current = restoredPositions;
-        setPositions(restoredPositions);
+        const restoredPosition = Object.values(restoredPositions)[0];
+        const singlePosition = restoredPosition ? { [restoredPosition.pair]: restoredPosition } : {};
+        positionsRef.current = singlePosition;
+        setPositions(singlePosition);
+        if (restoredPosition) setPositionEditor({ pair: restoredPosition.pair, side: restoredPosition.side, entryPrice: String(restoredPosition.entryPrice) });
         const seen = JSON.parse(window.localStorage.getItem(NEWS_SEEN_STORAGE_KEY) ?? "[]") as string[];
         seenNewsRef.current = new Set(seen.slice(-200));
         const shadow = JSON.parse(window.localStorage.getItem(OANDA_SHADOW_STORAGE_KEY) ?? "[]") as OandaShadowRecord[];
@@ -3085,6 +3131,21 @@ export default function Home() {
             </div>
             <div className="brand-meta"><strong>{FX_RATE_SPEAKER_VERSION_LABEL}</strong><span className={running ? "live" : ""}>{status}</span></div>
           </header>
+          <form className="position-entry" aria-label="ポジション入力" onSubmit={(event) => { event.preventDefault(); savePosition(); }}>
+            <div className="position-entry-head"><strong>POSITION</strong><span>1ペア</span></div>
+            <div className="position-entry-fields">
+              <select value={positionEditor.pair} aria-label="通貨ペア" onChange={(event) => { const pair = event.target.value; const existing = positionsRef.current[pair]; setPositionEditor({ pair, side: existing?.side ?? positionEditor.side, entryPrice: existing ? String(existing.entryPrice) : "" }); }}>
+                {PAIRS.map((pair) => <option key={pair.code} value={pair.code}>{pair.code}</option>)}
+              </select>
+              <input type="number" min="0" step="0.00001" inputMode="decimal" required placeholder="レート" aria-label="建値レート" value={positionEditor.entryPrice} onChange={(event) => setPositionEditor((current) => ({ ...current, entryPrice: event.target.value }))} />
+              <div className="position-entry-side" role="group" aria-label="LまたはS">
+                <button type="button" className={positionEditor.side === "BUY" ? "chosen long" : "long"} onClick={() => setPositionEditor((current) => ({ ...current, side: "BUY" }))}>L</button>
+                <button type="button" className={positionEditor.side === "SELL" ? "chosen short" : "short"} onClick={() => setPositionEditor((current) => ({ ...current, side: "SELL" }))}>S</button>
+              </div>
+              <button className="position-entry-save" type="submit">設定</button>
+              {Object.keys(positions).length > 0 && <button className="position-entry-clear" type="button" onClick={clearPosition}>解除</button>}
+            </div>
+          </form>
           {detail && <div className="error-banner" role="alert">{detail}</div>}
           <time className={`control-clock ${isClockAlertWindow(currentTime) ? "alert-window" : ""}`} dateTime={new Date(currentTime).toISOString()}>{formatLiveDateTime(currentTime)}</time>
           <section className={`market-notice ${currentMarketNotice ? "scheduled" : "proverb"} ${upcomingCalendarEvent ? "indicator-near" : ""}`} aria-live="polite">
@@ -3183,16 +3244,9 @@ export default function Home() {
                   aria-label={`${pair.code}を読み上げ対象${selected.includes(pair.code) ? "から外す" : "にする"}`}>
                   <div className="rate-identity">
                     <div className="rate-title"><span className="selection-dot" /><PairPill code={pair.code} /></div>
-                    <div className="rate-meta">
-                      <time>{visibleRate && !displayFailed ? new Date(visibleRate.timestamp * 1000).toLocaleTimeString("ja-JP", { hour12: false }) : "--:--:--"}</time>
-                      <span className={`volatility-badge v${volatility}`} title={`短期ボラティリティ V${volatility}`}>V{volatility}</span>
-                    </div>
-                    <button type="button" className={`position-brief ${position ? "active" : "empty"}`}
-                      onClick={(event) => { event.stopPropagation(); openPositionEditor(pair.code); }}
-                      onKeyDown={(event) => event.stopPropagation()}
-                      title={position ? `${position.side} ${displayPrice(position.entryPrice, pair.yen)}を編集` : `${pair.code}のポジションを設定`}>
-                      {position ? <><b>{position.side}</b><span>{displayPrice(position.entryPrice, pair.yen)}</span><em className={positionPips === null || positionPips === 0 ? "flat" : positionPips > 0 ? "profit" : "loss"}>{positionPips === null ? "--" : `${positionPips > 0 ? "+" : ""}${positionPips.toFixed(1)}`}</em></> : "POS"}
-                    </button>
+                    {position && <div className={`position-pips ${positionPips === null || positionPips === 0 ? "flat" : positionPips > 0 ? "profit" : "loss"}`} title={`${position.side === "BUY" ? "L" : "S"} ${displayPrice(position.entryPrice, pair.yen)}`}>
+                      {positionPips === null ? "--" : `${positionPips > 0 ? "+" : ""}${positionPips.toFixed(1)}`}
+                    </div>}
                   </div>
                   <div className="spark-slot">
                     <Sparkline history={history} movement={movement} direction={chartDirection} mode={audioMode} now={currentTime} />
@@ -3230,6 +3284,7 @@ export default function Home() {
 
         <section className={`radio-column panel ${audioModeFeatures(audioMode).commentary ? "enabled" : ""}`} aria-live="polite">
           <div className="latest-zone">
+            <div className="analysis-toolbar"><span>MARKET NEWS</span><button type="button" onClick={() => { setAnalysisSaveState("idle"); setAnalysisSaveMessage(""); setAnalysisEditorOpen(true); }}>四神原稿</button></div>
             {latestCommentary ? (
               <article className={`latest-commentary ${latestCommentary.level} ${latestCommentary.source.toLowerCase()}`}>
                 <div className="latest-summary-line">
@@ -3335,32 +3390,31 @@ export default function Home() {
           </section>
         </div>
       )}
-      {positionEditor && (
-        <div className="position-editor-backdrop" role="presentation" onMouseDown={(event) => {
-          if (event.currentTarget === event.target) setPositionEditor(null);
-        }}>
-          <form className="position-editor" role="dialog" aria-modal="true" aria-labelledby="position-editor-title"
-            onSubmit={(event) => { event.preventDefault(); savePosition(); }}>
+      {analysisEditorOpen && (
+        <div className="analysis-editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target && analysisSaveState !== "saving") setAnalysisEditorOpen(false); }}>
+          <form className="analysis-editor" role="dialog" aria-modal="true" aria-labelledby="analysis-editor-title"
+            onSubmit={(event) => { event.preventDefault(); void saveManualAnalysis(); }}>
             <header>
-              <div><p>POSITION</p><h2 id="position-editor-title">保有ポジション</h2></div>
-              <button type="button" onClick={() => setPositionEditor(null)} aria-label="閉じる">×</button>
+              <div><p>SHISHIN MARKET ANALYSIS</p><h2 id="analysis-editor-title">四神相場分析 原稿登録</h2></div>
+              <button type="button" onClick={() => setAnalysisEditorOpen(false)} disabled={analysisSaveState === "saving"} aria-label="閉じる">×</button>
             </header>
-            <label><span>通貨ペア</span><select value={positionEditor.pair} onChange={(event) => {
-              const pair = event.target.value;
-              const existing = positionsRef.current[pair];
-              setPositionEditor({ pair, side: existing?.side ?? "BUY", entryPrice: existing ? String(existing.entryPrice) : ratesRef.current[pair]?.price ? String(ratesRef.current[pair].price) : "" });
-            }}>{PAIRS.map((pair) => <option key={pair.code} value={pair.code}>{pair.code}</option>)}</select></label>
-            <div className="position-side" role="group" aria-label="売買方向">
-              {(["BUY", "SELL"] as const).map((side) => <button type="button" key={side} className={positionEditor.side === side ? `chosen ${side.toLowerCase()}` : side.toLowerCase()}
-                onClick={() => setPositionEditor((current) => current ? { ...current, side } : current)}>{side}</button>)}
+            <div className="analysis-editor-grid">
+              <label><span>通貨ペア</span><select value={analysisDraft.pair} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, pair: event.target.value }))}>
+                <option value="FX">市場全体</option>{PAIRS.map((pair) => <option key={pair.code} value={pair.code}>{pair.code}</option>)}
+              </select></label>
+              <fieldset><legend>判断</legend><div className="analysis-stance">
+                {(["BUY", "SELL", "WAIT"] as const).map((stance) => <button key={stance} type="button" className={analysisDraft.stance === stance ? `chosen ${stance.toLowerCase()}` : stance.toLowerCase()}
+                  onClick={() => setAnalysisDraft((draft) => ({ ...draft, stance }))}>{stance}</button>)}
+              </div></fieldset>
+              <label className="wide"><span>見出し</span><input required maxLength={120} value={analysisDraft.headline} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, headline: event.target.value }))} placeholder="例：東京市場前のドル円戦略" /></label>
+              <label className="wide"><span>原稿</span><textarea required minLength={10} maxLength={1800} rows={7} value={analysisDraft.body} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, body: event.target.value }))} placeholder="確認済みの相場情報と条件付きの見通しを入力" /></label>
+              <label><span>分析基準時刻</span><input type="datetime-local" required value={analysisDraft.analysisAt} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, analysisAt: event.target.value }))} /></label>
+              <label><span>配信日時</span><input type="datetime-local" required value={analysisDraft.publishAt} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, publishAt: event.target.value }))} /></label>
+              <label><span>有効期限</span><input type="datetime-local" required value={analysisDraft.expiresAt} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, expiresAt: event.target.value }))} /></label>
             </div>
-            <label><span>建値</span><input type="number" min="0" step="0.00001" inputMode="decimal" required autoFocus
-              value={positionEditor.entryPrice} onChange={(event) => setPositionEditor((current) => current ? { ...current, entryPrice: event.target.value } : current)} /></label>
-            <footer>
-              {positions[positionEditor.pair] && <button className="position-clear" type="button" onClick={() => clearPosition(positionEditor.pair)}>解除</button>}
-              <button type="button" onClick={() => setPositionEditor(null)}>キャンセル</button>
-              <button className="position-save" type="submit">設定</button>
-            </footer>
+            <p className="analysis-editor-note">BUY／SELLは相場分析上の目線です。自動売買や無条件の売買推奨には使用されません。</p>
+            {analysisSaveMessage && <p className={`analysis-save-message ${analysisSaveState}`}>{analysisSaveMessage}</p>}
+            <footer><button type="button" onClick={() => setAnalysisEditorOpen(false)} disabled={analysisSaveState === "saving"}>閉じる</button><button className="analysis-save" type="submit" disabled={analysisSaveState === "saving"}>{analysisSaveState === "saving" ? "登録中…" : "原稿を登録"}</button></footer>
           </form>
         </div>
       )}
