@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { getChatGPTUser } from "@/app/chatgpt-auth";
+import { extractAnalysisSignals, type AnalysisSourceType } from "@/lib/analysis-structure";
 
 export const dynamic = "force-dynamic";
 
 type NewsLevel = "NEWS_L1" | "NEWS_L2" | "NEWS_L3";
 type AnalysisStance = "BUY" | "SELL" | "WAIT";
+const SOURCE_TYPES = new Set<AnalysisSourceType>(["SHISHIN", "YOUTUBE", "OTHER"]);
 const SUPPORTED_PAIRS = new Set(["USD/JPY", "EUR/USD", "GBP/USD", "AUD/USD", "EUR/JPY", "GBP/JPY", "AUD/JPY", "EUR/GBP", "EUR/AUD", "GBP/AUD", "FX"]);
 const MAX_ANALYSIS_AGE_MS = 24 * 60 * 60 * 1000;
 const MAX_ANALYSIS_LIFETIME_MS = 72 * 60 * 60 * 1000;
@@ -63,33 +65,44 @@ function normalizedText(value: unknown, maximum: number) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, maximum) : "";
 }
 
+function normalizedBody(value: unknown, maximum: number) {
+  return typeof value === "string"
+    ? value.replace(/\r/g, "").replace(/[\t ]+/g, " ").replace(/\n{3,}/g, "\n\n").trim().slice(0, maximum)
+    : "";
+}
+
 async function dedupeKey(parts: string[]) {
   const bytes = new TextEncoder().encode(parts.join("\n").toLowerCase());
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function activeAnalyses(now = Date.now()) {
+async function activeSignals(now = Date.now()) {
   const db = await database();
   if (!db) return [];
-  const result = await db.prepare(`SELECT id, publish_at, analysis_at, expires_at, pair, stance, headline, body
-    FROM market_analyses WHERE publish_at <= ? AND expires_at > ? ORDER BY publish_at DESC LIMIT 30`).bind(now, now).all<{
-      id: string; publish_at: number; analysis_at: number; expires_at: number; pair: string; stance: AnalysisStance; headline: string; body: string;
+  const result = await db.prepare(`SELECT id, analysis_id, publish_at, analysis_at, expires_at, source_type, pair, stance,
+      level_low, level_high, trigger, condition_text, invalidation_text, source_excerpt, message
+    FROM analysis_signals WHERE publish_at <= ? AND expires_at > ? ORDER BY publish_at DESC LIMIT 80`).bind(now, now).all<{
+      id: string; analysis_id: string; publish_at: number; analysis_at: number; expires_at: number; source_type: AnalysisSourceType;
+      pair: string; stance: AnalysisStance; level_low: number; level_high: number; trigger: string; condition_text: string;
+      invalidation_text: string; source_excerpt: string; message: string;
     }>();
   return (result.results ?? []).map((item) => ({
-    id: `SHISHIN:${item.id}`,
-    source: "四神相場分析",
-    title: item.headline,
-    summary: item.body,
-    url: "",
-    publishedAt: item.publish_at,
-    currencies: item.pair === "FX" ? [] : item.pair.split("/"),
-    level: "NEWS_L2" as const,
-    analysisAt: item.analysis_at,
-    expiresAt: item.expires_at,
+    id: item.id,
+    analysisId: item.analysis_id,
+    sourceType: item.source_type,
     pair: item.pair,
     stance: item.stance,
-    manualAnalysis: true,
+    levelLow: item.level_low,
+    levelHigh: item.level_high,
+    trigger: item.trigger,
+    conditionText: item.condition_text,
+    invalidationText: item.invalidation_text,
+    sourceExcerpt: item.source_excerpt,
+    message: item.message,
+    publishAt: item.publish_at,
+    analysisAt: item.analysis_at,
+    expiresAt: item.expires_at,
   }));
 }
 
@@ -191,9 +204,9 @@ async function fetchFeed(feed: FeedDefinition) {
 }
 
 export async function GET() {
-  const analyses = await activeAnalyses();
+  const signals = await activeSignals();
   if (cachedNews && Date.now() - cachedAt < UPSTREAM_CACHE_MS) {
-    return NextResponse.json({ news: [...analyses, ...cachedNews].sort((a, b) => b.publishedAt - a.publishedAt).slice(0, 30), fetchedAt: cachedAt, sourcesOk: cachedSourcesOk, sourcesTotal: FEEDS.length, cache: "memory" }, {
+    return NextResponse.json({ news: cachedNews, signals, fetchedAt: cachedAt, sourcesOk: cachedSourcesOk, sourcesTotal: FEEDS.length, cache: "memory" }, {
       headers: { "Cache-Control": "public, max-age=30, s-maxage=60, stale-while-revalidate=180" },
     });
   }
@@ -205,13 +218,13 @@ export async function GET() {
     .slice(0, 30);
   const sourcesOk = settled.filter((result) => result.status === "fulfilled").length;
   if (!sourcesOk) {
-    if (analyses.length) return NextResponse.json({ news: analyses, fetchedAt: Date.now(), sourcesOk: 0, sourcesTotal: FEEDS.length });
+    if (signals.length) return NextResponse.json({ news: [], signals, fetchedAt: Date.now(), sourcesOk: 0, sourcesTotal: FEEDS.length });
     return NextResponse.json({ error: "NEWS取得元へ接続できませんでした", news: [], sourcesOk: 0 }, { status: 503 });
   }
   cachedNews = news;
   cachedAt = Date.now();
   cachedSourcesOk = sourcesOk;
-  return NextResponse.json({ news: [...analyses, ...news].sort((a, b) => b.publishedAt - a.publishedAt).slice(0, 30), fetchedAt: Date.now(), sourcesOk, sourcesTotal: FEEDS.length }, {
+  return NextResponse.json({ news, signals, fetchedAt: Date.now(), sourcesOk, sourcesTotal: FEEDS.length }, {
     headers: { "Cache-Control": "public, max-age=30, s-maxage=60, stale-while-revalidate=180" },
   });
 }
@@ -225,13 +238,14 @@ export async function POST(request: Request) {
 
   const pair = normalizedText(payload.pair, 12);
   const stance = normalizedText(payload.stance, 4) as AnalysisStance;
+  const sourceType = normalizedText(payload.sourceType, 12) as AnalysisSourceType || "SHISHIN";
   const headline = normalizedText(payload.headline, 120);
-  const body = normalizedText(payload.body, 1800);
+  const body = normalizedBody(payload.body, 8000);
   const analysisAt = asTimestamp(payload.analysisAt);
   const publishAt = asTimestamp(payload.publishAt);
   const expiresAt = asTimestamp(payload.expiresAt);
   const now = Date.now();
-  if (!SUPPORTED_PAIRS.has(pair) || !["BUY", "SELL", "WAIT"].includes(stance) || !headline || body.length < 10) {
+  if (!SUPPORTED_PAIRS.has(pair) || !["BUY", "SELL", "WAIT"].includes(stance) || !SOURCE_TYPES.has(sourceType) || !headline || body.length < 10) {
     return NextResponse.json({ error: "ペア・判断・見出し・本文を確認してください" }, { status: 400 });
   }
   if (![analysisAt, publishAt, expiresAt].every(Number.isFinite)
@@ -242,17 +256,29 @@ export async function POST(request: Request) {
   }
   const key = await dedupeKey([pair, stance, String(analysisAt), headline, body]);
   const id = crypto.randomUUID();
+  const signals = extractAnalysisSignals({ body, pair, stance, sourceType });
   try {
     const db = await database();
     if (!db) return NextResponse.json({ error: "原稿保存先を利用できません" }, { status: 503 });
-    await db.prepare(`INSERT INTO market_analyses
+    const statements = [db.prepare(`INSERT INTO market_analyses
       (id, created_at, created_by, publish_at, analysis_at, expires_at, pair, stance, headline, body, dedupe_key)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(id, now, authorization.user.email, publishAt, analysisAt, expiresAt, pair, stance, headline, body, key).run();
+      .bind(id, now, authorization.user.email, publishAt, analysisAt, expiresAt, pair, stance, headline, body, key)];
+    for (const signal of signals) {
+      const signalKey = await dedupeKey([sourceType, signal.pair, String(signal.levelLow), String(signal.levelHigh), signal.trigger, signal.conditionText, String(expiresAt)]);
+      statements.push(db.prepare(`INSERT OR IGNORE INTO analysis_signals
+        (id, analysis_id, created_at, publish_at, analysis_at, expires_at, source_type, pair, stance, level_low, level_high,
+          trigger, condition_text, invalidation_text, source_excerpt, message, dedupe_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(crypto.randomUUID(), id, now, publishAt, analysisAt, expiresAt, sourceType, signal.pair, signal.stance,
+          signal.levelLow, signal.levelHigh, signal.trigger, signal.conditionText, signal.invalidationText,
+          signal.sourceExcerpt, signal.message, signalKey));
+    }
+    await db.batch(statements);
   } catch (error) {
     if (String(error).toLowerCase().includes("unique")) return NextResponse.json({ error: "同じ原稿はすでに登録されています" }, { status: 409 });
     console.error("FX Rate Speaker analysis registration failed", error);
     return NextResponse.json({ error: "原稿を保存できませんでした" }, { status: 500 });
   }
-  return NextResponse.json({ id, registeredAt: now }, { status: 201, headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({ id, registeredAt: now, extractedSignals: signals }, { status: 201, headers: { "Cache-Control": "no-store" } });
 }

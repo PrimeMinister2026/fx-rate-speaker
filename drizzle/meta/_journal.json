@@ -8,6 +8,13 @@
       "when": 1792943531342,
       "tag": "0000_curious_maximus",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1792966569929,
+      "tag": "0001_lively_proteus",
+      "breakpoints": true
     }
   ]
 }
