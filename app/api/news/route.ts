@@ -87,7 +87,7 @@ async function activeSignals(now = Date.now()) {
       pair: string; stance: AnalysisStance; level_low: number; level_high: number; trigger: string; condition_text: string;
       invalidation_text: string; source_excerpt: string; message: string;
     }>();
-  return (result.results ?? []).map((item) => ({
+  const stored = (result.results ?? []).map((item) => ({
     id: item.id,
     analysisId: item.analysis_id,
     sourceType: item.source_type,
@@ -104,6 +104,25 @@ async function activeSignals(now = Date.now()) {
     analysisAt: item.analysis_at,
     expiresAt: item.expires_at,
   }));
+  const legacy = await db.prepare(`SELECT id, publish_at, analysis_at, expires_at, pair, stance, body
+    FROM market_analyses a WHERE publish_at <= ? AND expires_at > ?
+      AND NOT EXISTS (SELECT 1 FROM analysis_signals s WHERE s.analysis_id = a.id)
+    ORDER BY publish_at DESC LIMIT 10`).bind(now, now).all<{
+      id: string; publish_at: number; analysis_at: number; expires_at: number; pair: string; stance: AnalysisStance; body: string;
+    }>();
+  const compatibility = (legacy.results ?? []).flatMap((analysis) =>
+    extractAnalysisSignals({ body: analysis.body, pair: analysis.pair, stance: analysis.stance, sourceType: "SHISHIN" })
+      .map((signal, index) => ({
+        id: `legacy:${analysis.id}:${index}`,
+        analysisId: analysis.id,
+        sourceType: "SHISHIN" as const,
+        ...signal,
+        publishAt: analysis.publish_at,
+        analysisAt: analysis.analysis_at,
+        expiresAt: analysis.expires_at,
+      })),
+  );
+  return [...stored, ...compatibility];
 }
 
 function decodeXml(value: string) {
