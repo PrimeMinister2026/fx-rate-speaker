@@ -246,6 +246,9 @@ type NavigationSignal = {
 };
 type NewsResponse = { news?: NewsItem[]; signals?: NavigationSignal[]; error?: string; sourcesOk?: number; sourcesTotal?: number };
 type AnalysisDraft = { sourceType: "SHISHIN" | "YOUTUBE" | "OTHER"; sourceLabel: string; headline: string; body: string; analysisAt: string; publishAt: string; expiresAt: string };
+type AnalysisStatus = "ACTIVE" | "HOLD" | "INVALID" | "EXPIRED" | "ARCHIVED";
+type ManagedSignal = { id: string; pair: string; stance: "BUY" | "SELL" | "WAIT"; levelLow: number; levelHigh: number; trigger: string; conditionText: string; invalidationText: string; message: string; environment: string; priceRole: string; status: AnalysisStatus; effectiveStatus: AnalysisStatus };
+type ManagedAnalysis = { id: string; createdAt: number; publishAt: number; analysisAt: number; expiresAt: number; headline: string; body: string; sourceType: string; sourceLabel: string; status: AnalysisStatus; effectiveStatus: AnalysisStatus; retentionDays: number; signals: ManagedSignal[] };
 type CalendarEvent = {
   id: string;
   title: string;
@@ -960,6 +963,11 @@ export default function Home() {
   const audioModeRef = useRef<AudioMode>("mode4");
   const [commentaryHistory, setCommentaryHistory] = useState<CommentaryEntry[]>([]);
   const [analysisEditorOpen, setAnalysisEditorOpen] = useState(false);
+  const [analysisManagerOpen, setAnalysisManagerOpen] = useState(false);
+  const [managedAnalyses, setManagedAnalyses] = useState<ManagedAnalysis[]>([]);
+  const [analysisManagerState, setAnalysisManagerState] = useState<"idle" | "loading" | "saving" | "error">("idle");
+  const [analysisManagerMessage, setAnalysisManagerMessage] = useState("");
+  const [analysisManagerFilter, setAnalysisManagerFilter] = useState<"ALL" | AnalysisStatus>("ALL");
   const [analysisDraft, setAnalysisDraft] = useState<AnalysisDraft>(() => freshAnalysisDraft());
   const [analysisPreview, setAnalysisPreview] = useState<NavigationSignal[]>([]);
   const [analysisReviewed, setAnalysisReviewed] = useState(false);
@@ -1856,6 +1864,36 @@ export default function Home() {
       ? `同時刻付近で、${rapidPair.name}の値動きが拡大しています。`
       : "";
     return `${prefix}${item.summary}${relation}`;
+  }
+
+  async function loadAnalysisManager() {
+    setAnalysisManagerState("loading"); setAnalysisManagerMessage("");
+    try {
+      const response = await fetch("/api/analysis-admin", { cache: "no-store" });
+      const data = await response.json() as { analyses?: ManagedAnalysis[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "管理情報を取得できませんでした");
+      setManagedAnalyses(data.analyses ?? []); setAnalysisManagerState("idle");
+    } catch (error) {
+      setAnalysisManagerState("error"); setAnalysisManagerMessage(error instanceof Error ? error.message : "管理情報を取得できませんでした");
+    }
+  }
+
+  async function updateManagedAnalysis(payload: Record<string, unknown>) {
+    setAnalysisManagerState("saving"); setAnalysisManagerMessage("");
+    try {
+      const response = await fetch("/api/analysis-admin", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const data = await response.json() as { error?: string; extracted?: number; note?: string };
+      if (!response.ok) throw new Error(data.error || "更新できませんでした");
+      setAnalysisManagerMessage(data.extracted !== undefined ? `${data.extracted}件を抽出しました。${data.note ?? ""}` : "更新しました。");
+      await loadAnalysisManager();
+      if (runningRef.current) void pollNews(runIdRef.current);
+    } catch (error) {
+      setAnalysisManagerState("error"); setAnalysisManagerMessage(error instanceof Error ? error.message : "更新できませんでした");
+    }
+  }
+
+  function statusLabel(status: AnalysisStatus) {
+    return ({ ACTIVE: "有効", HOLD: "保留", INVALID: "失効", EXPIRED: "期限切れ", ARCHIVED: "アーカイブ" } as const)[status];
   }
 
   async function saveManualAnalysis() {
@@ -3411,7 +3449,7 @@ export default function Home() {
 
         <section className={`radio-column panel ${audioModeFeatures(audioMode).commentary ? "enabled" : ""}`} aria-live="polite">
           <div className="latest-zone">
-            <div className="analysis-toolbar"><span>MARKET NEWS</span><button type="button" onClick={() => { setAnalysisSaveState("idle"); setAnalysisSaveMessage(""); setAnalysisEditorOpen(true); }}>四神原稿</button></div>
+            <div className="analysis-toolbar"><span>MARKET NEWS</span><div><button type="button" onClick={() => { setAnalysisManagerOpen(true); void loadAnalysisManager(); }}>分析管理</button><button type="button" onClick={() => { setAnalysisSaveState("idle"); setAnalysisSaveMessage(""); setAnalysisEditorOpen(true); }}>原稿登録</button></div></div>
             {latestCommentary ? (
               <article className={`latest-commentary ${latestCommentary.level} ${latestCommentary.source.toLowerCase()}`}>
                 <div className="latest-summary-line">
@@ -3514,6 +3552,28 @@ export default function Home() {
               <button className="notice-add" type="button" onClick={addMarketNotice}>＋ 項目を追加</button>
               <button className="notice-done" type="button" onClick={() => setMarketNoticeAdminOpen(false)}>完了</button>
             </footer>
+          </section>
+        </div>
+      )}
+      {analysisManagerOpen && (
+        <div className="analysis-editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target && analysisManagerState !== "saving") setAnalysisManagerOpen(false); }}>
+          <section className="analysis-manager" role="dialog" aria-modal="true" aria-labelledby="analysis-manager-title">
+            <header><div><p>MARKET ANALYSIS LIBRARY</p><h2 id="analysis-manager-title">相場分析 管理</h2></div><button type="button" onClick={() => setAnalysisManagerOpen(false)} aria-label="閉じる">×</button></header>
+            <div className="analysis-manager-summary">
+              {(["ACTIVE", "HOLD", "INVALID", "EXPIRED", "ARCHIVED"] as AnalysisStatus[]).map((status) => <button type="button" key={status} className={analysisManagerFilter === status ? "chosen" : ""} onClick={() => setAnalysisManagerFilter(analysisManagerFilter === status ? "ALL" : status)}><b>{managedAnalyses.filter((item) => item.effectiveStatus === status).length}</b><span>{statusLabel(status)}</span></button>)}
+            </div>
+            <p className="analysis-manager-help">原稿と抽出された価格情報を別々に確認できます。アーカイブは削除ではなく保管です。期限切れ・失効・保留は実況されません。</p>
+            {analysisManagerMessage && <p className={`analysis-save-message ${analysisManagerState === "error" ? "error" : "saved"}`}>{analysisManagerMessage}</p>}
+            {analysisManagerState === "loading" ? <p className="analysis-manager-empty">読み込み中…</p> : <div className="analysis-manager-list">
+              {managedAnalyses.filter((item) => analysisManagerFilter === "ALL" || item.effectiveStatus === analysisManagerFilter).map((item) => <article className="managed-analysis" key={item.id}>
+                <div className="managed-analysis-head"><div><span className={`analysis-status ${item.effectiveStatus.toLowerCase()}`}>{statusLabel(item.effectiveStatus)}</span><strong>{item.headline || item.sourceLabel || "見出しなし"}</strong><small>{item.sourceLabel || item.sourceType}</small></div><select aria-label="原稿の状態" value={item.status} disabled={analysisManagerState === "saving"} onChange={(event) => void updateManagedAnalysis({ action: "analysis-status", id: item.id, status: event.target.value })}>{(["ACTIVE", "HOLD", "INVALID", "ARCHIVED"] as AnalysisStatus[]).map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}</select></div>
+                <div className="managed-analysis-meta"><span>分析 {new Date(item.analysisAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span><span>期限 {new Date(item.expiresAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span><span>価格情報 {item.signals.length}件</span></div>
+                <details><summary>原稿・期限・保存設定</summary><p className="managed-body">{item.body}</p><div className="managed-settings"><label>有効期限<input type="datetime-local" defaultValue={localDateTimeInput(item.expiresAt)} onBlur={(event) => { const value = new Date(event.target.value).getTime(); if (Number.isFinite(value) && value !== item.expiresAt) void updateManagedAnalysis({ action: "update-analysis", id: item.id, expiresAt: value, retentionDays: item.retentionDays }); }} /></label><label>保存日数<input type="number" min="7" max="365" defaultValue={item.retentionDays} onBlur={(event) => void updateManagedAnalysis({ action: "update-analysis", id: item.id, expiresAt: item.expiresAt, retentionDays: Number(event.target.value) })} /></label></div></details>
+                {item.signals.length === 0 ? <div className="managed-no-signals"><span>抽出済み価格情報がありません。原稿は残っています。</span><button type="button" disabled={analysisManagerState === "saving"} onClick={() => void updateManagedAnalysis({ action: "reextract", id: item.id })}>旧原稿を再解析</button></div> : <div className="managed-signals">{item.signals.map((signal) => <div className="managed-signal" key={signal.id}><div><span className={`analysis-status ${signal.effectiveStatus.toLowerCase()}`}>{statusLabel(signal.effectiveStatus)}</span><b>{signal.pair}</b><em>{signal.stance}</em><strong>{signal.levelLow === signal.levelHigh ? signal.levelLow : `${signal.levelLow}〜${signal.levelHigh}`}</strong><small>{signal.priceRole} / {signal.trigger}</small></div><p>{signal.conditionText}</p><select aria-label={`${signal.pair}価格情報の状態`} value={signal.status} disabled={analysisManagerState === "saving"} onChange={(event) => void updateManagedAnalysis({ action: "signal-status", id: signal.id, status: event.target.value })}>{(["ACTIVE", "HOLD", "INVALID", "ARCHIVED"] as AnalysisStatus[]).map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}</select></div>)}</div>}
+              </article>)}
+              {!managedAnalyses.length && analysisManagerState !== "error" ? <p className="analysis-manager-empty">登録済み原稿はありません。</p> : null}
+            </div>}
+            <footer><button type="button" onClick={() => void loadAnalysisManager()} disabled={analysisManagerState === "loading" || analysisManagerState === "saving"}>再読み込み</button><button className="analysis-save" type="button" onClick={() => setAnalysisManagerOpen(false)}>閉じる</button></footer>
           </section>
         </div>
       )}
