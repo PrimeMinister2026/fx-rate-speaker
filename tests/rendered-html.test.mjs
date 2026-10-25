@@ -41,7 +41,7 @@ test("renders development preview metadata", async (t) => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v121<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v124<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -376,7 +376,7 @@ test("v114 stores compact positions and appends their P/L speech in both audio m
   assert.match(page, /restorePositions\([\s\S]*window\.localStorage\.getItem\(POSITIONS_STORAGE_KEY\)/);
   assert.match(page, /window\.localStorage\.setItem\(POSITIONS_STORAGE_KEY, JSON\.stringify\(next\)\)/);
   assert.match(page, /positionSpeech: positionsRef\.current\[code\]/);
-  assert.match(page, /if \(item\.positionSpeech\) await playSpeech\(item\.positionSpeech, runId\)/);
+  assert.match(page, /if \(item\.positionSpeech\) \{[\s\S]*playMode5PositionCue\(runId\)[\s\S]*playSpeech\(item\.positionSpeech, runId\)/);
   assert.match(page, /className="position-entry"/);
   assert.match(page, /className=\{`position-pips/);
   assert.match(page, />解除<\/button>/);
@@ -404,7 +404,7 @@ test("v118 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 121/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 124/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);

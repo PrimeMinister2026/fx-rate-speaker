@@ -30,7 +30,7 @@ export type Mode5ToneCue = {
   minutes: 5 | 3 | 1;
   direction: WindowDirection;
   intensity: "flat" | "normal" | "strong";
-  frequencies: [number, number];
+  frequencies: [number, number, number, number];
 };
 
 export type Mode5RapidAnalysis = {
@@ -148,15 +148,22 @@ export function buildMode5ToneCues(history: RatePoint[], pipSize: number): Mode5
       : window.direction;
     const intensity = direction === "unchanged" ? "flat" : window.strength >= 0.72 ? "strong" : "normal";
     const intervalSemitones = intensity === "strong" ? 7 : intensity === "normal" ? 3 : 0;
-    const lower = baseFrequency * (2 ** (-intervalSemitones / 24));
-    const upper = baseFrequency * (2 ** (intervalSemitones / 24));
+    const frequencyAt = (semitones: number) => baseFrequency * (2 ** (semitones / 12));
+    const ascending: [number, number, number, number] = intervalSemitones === 0
+      ? [baseFrequency, baseFrequency, baseFrequency, baseFrequency]
+      : [
+        frequencyAt(-intervalSemitones / 2),
+        frequencyAt(-intervalSemitones / 6),
+        frequencyAt(intervalSemitones / 6),
+        frequencyAt(intervalSemitones / 2),
+      ];
     return {
       minutes: window.minutes,
       direction,
       intensity,
       frequencies: direction === "up"
-        ? [lower, upper]
-        : direction === "down" ? [upper, lower] : [baseFrequency, baseFrequency],
+        ? ascending
+        : direction === "down" ? [...ascending].reverse() as [number, number, number, number] : ascending,
     };
   });
 }

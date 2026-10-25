@@ -1474,10 +1474,12 @@ export default function Home() {
     if (!context || !output) return;
     await context.resume();
     const startAt = context.currentTime;
-    const noteDuration = 0.12;
-    const noteGap = 0.035;
+    const noteDuration = 0.075;
+    const noteGap = 0.025;
     const windowGap = 0.12;
-    const windowStep = noteDuration * 2 + noteGap + windowGap;
+    const notesPerWindow = 4;
+    const windowDuration = noteDuration * notesPerWindow + noteGap * (notesPerWindow - 1);
+    const windowStep = windowDuration + windowGap;
     cues.forEach((cue, windowIndex) => {
       cue.frequencies.forEach((frequency, noteIndex) => {
         const noteAt = startAt + windowIndex * windowStep + noteIndex * (noteDuration + noteGap);
@@ -1493,7 +1495,28 @@ export default function Home() {
         oscillator.stop(noteAt + noteDuration);
       });
     });
-    await wait(((cues.length - 1) * windowStep + noteDuration * 2 + noteGap) * 1000 + 45);
+    await wait(((cues.length - 1) * windowStep + windowDuration) * 1000 + 45);
+  }
+
+  async function playMode5PositionCue(runId: number) {
+    if (runId !== runIdRef.current || !soundOnRef.current) return;
+    ensureAudio();
+    const context = audioContextRef.current;
+    const output = gainRef.current;
+    if (!context || !output) return;
+    await context.resume();
+    const startAt = context.currentTime;
+    const oscillator = context.createOscillator();
+    const noteGain = context.createGain();
+    oscillator.type = "triangle";
+    oscillator.frequency.setValueAtTime(1046.5, startAt);
+    noteGain.gain.setValueAtTime(0.0001, startAt);
+    noteGain.gain.exponentialRampToValueAtTime(0.16, startAt + 0.008);
+    noteGain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.095);
+    oscillator.connect(noteGain).connect(output);
+    oscillator.start(startAt);
+    oscillator.stop(startAt + 0.1);
+    await wait(135);
   }
 
   async function playMode5RapidWarning(direction: "RAPID_UP" | "RAPID_DOWN", runId: number) {
@@ -2194,16 +2217,7 @@ export default function Home() {
           priority: 40,
         };
       }
-      if (nextRegime !== oldRegime && nextRegime === "quiet") {
-        return {
-          pair: code,
-          kind: "値動き鈍化",
-          text: `${flowCommentary(name, flow, movement.state)} 値動きは鈍化しています。`,
-          level: "normal",
-          eventKey: "VOL_QUIET",
-          priority: 30,
-        };
-      }
+      // Quiet-market transitions remain internal and do not interrupt with speech.
     }
     return null;
   }
@@ -2233,13 +2247,12 @@ export default function Home() {
       };
     }
     if (now - lastSummaryAtRef.current < SUMMARY_INTERVAL_MS) return null;
-    lastSummaryAtRef.current = now;
     const active = states
       .filter((item) => item.state !== "NORMAL" || item.flow.overall !== "unchanged" || item.flow.recent !== "unchanged")
       .slice(0, 2);
-    const text = active.length
-      ? `現在の市場です。${active.map((item) => flowCommentary(item.name, item.flow, item.state)).join(" ")}`
-      : "現在の市場です。10ペア全体に、明確な傾向や急変は出ていません。";
+    if (!active.length) return null;
+    lastSummaryAtRef.current = now;
+    const text = `現在の市場です。${active.map((item) => flowCommentary(item.name, item.flow, item.state)).join(" ")}`;
     return {
       id: `${now}-summary`,
       timestamp: now,
@@ -2536,9 +2549,14 @@ export default function Home() {
       if (audioModeFeatures(audioModeRef.current).rapidCauses
         && (movement.notification === "RAPID_UP" || movement.notification === "RAPID_DOWN")) {
         const cause = findRapidCause(pair.code, now, recentNewsRef.current, calendarEventsRef.current);
+        const usefulCause = cause.confidence !== "UNKNOWN";
         const causeKey = `${pair.code}:${cause.sourceId}`;
         const lastCauseAt = causeCooldownRef.current.get(causeKey) ?? 0;
-        if (now - lastCauseAt >= CAUSE_COOLDOWN_MS) {
+        if (audioModeFeatures(audioModeRef.current).timeWindowRapid) {
+          queuedMode5RapidPairs.add(pair.code);
+          queueMode5RapidAudioEvent(pair, movement.notification, analysisRate, usefulCause ? cause.text : undefined);
+        }
+        if (usefulCause && now - lastCauseAt >= CAUSE_COOLDOWN_MS) {
           causeCooldownRef.current.set(causeKey, now);
           const causeEntry: QueuedCommentary = {
             id: `${now}-${pair.code}-cause-${cause.sourceId}`,
@@ -2547,13 +2565,11 @@ export default function Home() {
             pair: pair.code,
             kind: `CAUSE ${cause.confidence}`,
             text: `${pair.name}、${movement.notification === "RAPID_UP" ? "急騰。" : "急落。"}${cause.text}`,
-            level: cause.confidence === "UNKNOWN" ? "normal" : "important",
+            level: "important",
             confidence: cause.confidence,
-            priority: cause.confidence === "CONFIRMED" ? 95 : cause.confidence === "LIKELY" ? 90 : 85,
+            priority: cause.confidence === "CONFIRMED" ? 95 : 90,
           };
           if (audioModeFeatures(audioModeRef.current).timeWindowRapid) {
-            queuedMode5RapidPairs.add(pair.code);
-            queueMode5RapidAudioEvent(pair, movement.notification, analysisRate, cause.text);
             addCommentaryHistory(causeEntry);
           } else {
             causeEntries.push(causeEntry);
@@ -2872,7 +2888,10 @@ export default function Home() {
               await playRateCue(item.cue, runId);
             }
             await playSpeech(item.price, runId);
-            if (item.positionSpeech) await playSpeech(item.positionSpeech, runId);
+            if (item.positionSpeech) {
+              if (audioModeFeatures(audioModeRef.current).timeWindowAudio) await playMode5PositionCue(runId);
+              await playSpeech(item.positionSpeech, runId);
+            }
             console.debug("[FX Rate Speaker audio speech complete]", { type: "NORMAL_RATE", pair: item.code, speech });
             await wait(75);
             latestAcceptedRef.current[item.code] = false;
