@@ -1,4 +1,4 @@
-export type AnalysisSourceType = "SHISHIN" | "YOUTUBE" | "OTHER";
+export type AnalysisSourceType = "SHIJIN" | "YOUTUBE" | "OTHER";
 export type AnalysisStance = "BUY" | "SELL" | "WAIT";
 export type SignalTrigger = "APPROACH" | "CROSS_ABOVE" | "CROSS_BELOW" | "REBOUND" | "REJECTION";
 export type PriceRole = "CURRENT" | "ENTRY" | "TARGET" | "TAKE_PROFIT" | "STOP_LOSS" | "INVALIDATION" | "SUPPORT" | "RESISTANCE" | "WATCH";
@@ -32,7 +32,7 @@ const PAIR_ALIASES: Array<[string, RegExp]> = [
 ];
 
 const SOURCE_LABELS: Record<AnalysisSourceType, string> = {
-  SHISHIN: "四神",
+  SHIJIN: "四神",
   YOUTUBE: "動画分析",
   OTHER: "相場分析",
 };

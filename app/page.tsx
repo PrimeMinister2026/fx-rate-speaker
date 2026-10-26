@@ -159,7 +159,7 @@ function localDateTimeInput(timestamp: number) {
 
 function freshAnalysisDraft(): AnalysisDraft {
   const now = Date.now();
-  return { sourceType: "SHISHIN", sourceLabel: "", headline: "", body: "", analysisAt: localDateTimeInput(now), publishAt: localDateTimeInput(now), expiresAt: localDateTimeInput(now + 24 * 60 * 60 * 1000) };
+  return { sourceType: "SHIJIN", sourceLabel: "", headline: "", body: "", analysisAt: localDateTimeInput(now), publishAt: localDateTimeInput(now), expiresAt: localDateTimeInput(now + 24 * 60 * 60 * 1000) };
 }
 
 type Rate = { price: number; timestamp: number };
@@ -236,7 +236,7 @@ type NewsItem = {
   manualAnalysis?: boolean;
 };
 type NavigationSignal = {
-  id: string; analysisId: string; sourceType: "SHISHIN" | "YOUTUBE" | "OTHER";
+  id: string; analysisId: string; sourceType: "SHIJIN" | "YOUTUBE" | "OTHER";
   pair: string; stance: "BUY" | "SELL" | "WAIT"; levelLow: number; levelHigh: number;
   trigger: "APPROACH" | "CROSS_ABOVE" | "CROSS_BELOW" | "REBOUND" | "REJECTION";
   conditionText: string; invalidationText: string; sourceExcerpt: string; message: string;
@@ -245,7 +245,7 @@ type NavigationSignal = {
   publishAt: number; analysisAt: number; expiresAt: number;
 };
 type NewsResponse = { news?: NewsItem[]; signals?: NavigationSignal[]; error?: string; sourcesOk?: number; sourcesTotal?: number };
-type AnalysisDraft = { sourceType: "SHISHIN" | "YOUTUBE" | "OTHER"; sourceLabel: string; headline: string; body: string; analysisAt: string; publishAt: string; expiresAt: string };
+type AnalysisDraft = { sourceType: "SHIJIN" | "YOUTUBE" | "OTHER"; sourceLabel: string; headline: string; body: string; analysisAt: string; publishAt: string; expiresAt: string };
 type AnalysisStatus = "ACTIVE" | "HOLD" | "INVALID" | "EXPIRED" | "ARCHIVED";
 type ManagedSignal = { id: string; pair: string; stance: "BUY" | "SELL" | "WAIT"; levelLow: number; levelHigh: number; trigger: string; conditionText: string; invalidationText: string; message: string; environment: string; priceRole: string; status: AnalysisStatus; effectiveStatus: AnalysisStatus };
 type ManagedAnalysis = { id: string; createdAt: number; publishAt: number; analysisAt: number; expiresAt: number; headline: string; body: string; sourceType: string; sourceLabel: string; status: AnalysisStatus; effectiveStatus: AnalysisStatus; retentionDays: number; signals: ManagedSignal[] };
@@ -2648,7 +2648,7 @@ export default function Home() {
         pair: signal.pair,
         kind: event === "CONFLICT" ? "見解対立" : event === "APPROACH" ? "注目水準接近" : invalidationEvent ? "失効条件" : "条件変化",
         text: `${signal.message.slice(0, 72)} ${suffix}`.slice(0, 120),
-        headline: `${signal.sourceType === "SHISHIN" ? "四神" : signal.sourceType === "YOUTUBE" ? "動画分析" : "相場分析"}｜基準 ${new Date(signal.analysisAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}`,
+        headline: `${signal.sourceType === "SHIJIN" ? "四神" : signal.sourceType === "YOUTUBE" ? "動画分析" : "相場分析"}｜基準 ${new Date(signal.analysisAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}`,
         level: event === "APPROACH" ? "normal" : "important",
         priority: event === "APPROACH" ? 62 : 78,
         analysisAt: signal.analysisAt,
@@ -3587,7 +3587,7 @@ export default function Home() {
             </header>
             <div className="analysis-editor-grid">
               <label><span>出典</span><select value={analysisDraft.sourceType} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, sourceType: event.target.value as AnalysisDraft["sourceType"] }))}>
-                <option value="SHISHIN">神様相場分析</option><option value="YOUTUBE">YouTube研究</option><option value="OTHER">その他分析</option>
+                <option value="SHIJIN">四神相場分析</option><option value="YOUTUBE">YouTube研究</option><option value="OTHER">その他分析</option>
               </select></label>
               <label><span>情報源名（任意）</span><input maxLength={80} value={analysisDraft.sourceLabel} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, sourceLabel: event.target.value }))} placeholder="例：ローソクさん" /></label>
               <label className="wide"><span>見出し（任意）</span><input maxLength={120} value={analysisDraft.headline} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, headline: event.target.value }))} /></label>

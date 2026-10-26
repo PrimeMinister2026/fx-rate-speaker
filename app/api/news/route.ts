@@ -6,10 +6,10 @@ export const dynamic = "force-dynamic";
 
 type NewsLevel = "NEWS_L1" | "NEWS_L2" | "NEWS_L3";
 type AnalysisStance = "BUY" | "SELL" | "WAIT";
-const SOURCE_TYPES = new Set<AnalysisSourceType>(["SHISHIN", "YOUTUBE", "OTHER"]);
+const SOURCE_TYPES = new Set<AnalysisSourceType>(["SHIJIN", "YOUTUBE", "OTHER"]);
 const SUPPORTED_PAIRS = new Set(["USD/JPY", "EUR/USD", "GBP/USD", "AUD/USD", "EUR/JPY", "GBP/JPY", "AUD/JPY", "EUR/GBP", "EUR/AUD", "GBP/AUD", "FX"]);
-const MAX_ANALYSIS_AGE_MS = 24 * 60 * 60 * 1000;
-const MAX_ANALYSIS_LIFETIME_MS = 72 * 60 * 60 * 1000;
+const MAX_ANALYSIS_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_ANALYSIS_LIFETIME_MS = 10 * 24 * 60 * 60 * 1000;
 
 type FeedDefinition = {
   name: string;
@@ -111,11 +111,11 @@ async function activeSignals(now = Date.now()) {
       id: string; publish_at: number; analysis_at: number; expires_at: number; pair: string; stance: AnalysisStance; body: string;
     }>();
   const compatibility = (legacy.results ?? []).flatMap((analysis) =>
-    extractAnalysisSignals({ body: analysis.body, pair: analysis.pair, stance: analysis.stance, sourceType: "SHISHIN" }).filter((signal) => signal.priceRole !== "CURRENT")
+    extractAnalysisSignals({ body: analysis.body, pair: analysis.pair, stance: analysis.stance, sourceType: "SHIJIN" }).filter((signal) => signal.priceRole !== "CURRENT")
       .map((signal, index) => ({
         id: `legacy:${analysis.id}:${index}`,
         analysisId: analysis.id,
-        sourceType: "SHISHIN" as const,
+        sourceType: "SHIJIN" as const,
         ...signal,
         publishAt: analysis.publish_at,
         analysisAt: analysis.analysis_at,
@@ -256,20 +256,21 @@ export async function POST(request: Request) {
   catch { return NextResponse.json({ error: "JSON形式が不正です" }, { status: 400 }); }
 
   const action = normalizedText(payload.action, 16) || "register";
-  const sourceType = normalizedText(payload.sourceType, 12) as AnalysisSourceType || "SHISHIN";
+  const rawSourceType = normalizedText(payload.sourceType, 12);
+  const sourceType = (rawSourceType === "SHISHIN" ? "SHIJIN" : rawSourceType || "SHIJIN") as AnalysisSourceType;
   const headline = normalizedText(payload.headline, 120);
   const body = normalizedBody(payload.body, 8000);
   const now = Date.now();
   const analysisAt = Number.isFinite(asTimestamp(payload.analysisAt)) ? asTimestamp(payload.analysisAt) : now;
   const publishAt = Number.isFinite(asTimestamp(payload.publishAt)) ? asTimestamp(payload.publishAt) : now;
   const expiresAt = Number.isFinite(asTimestamp(payload.expiresAt)) ? asTimestamp(payload.expiresAt) : analysisAt + 24 * 60 * 60 * 1000;
-  const sourceLabel = normalizedText(payload.sourceLabel, 80) || (/ローソク/.test(body) ? "ローソクさん" : /くにお/.test(body) ? "くにおさん" : /REDFOX/i.test(body) ? "REDFOX" : sourceType === "SHISHIN" ? "神様相場分析" : sourceType === "YOUTUBE" ? "YouTube研究" : "その他分析");
+  const sourceLabel = normalizedText(payload.sourceLabel, 80) || (/ローソク/.test(body) ? "ローソクさん" : /くにお/.test(body) ? "くにおさん" : /REDFOX/i.test(body) ? "REDFOX" : sourceType === "SHIJIN" ? "四神相場分析" : sourceType === "YOUTUBE" ? "YouTube研究" : "その他分析");
   if (!SOURCE_TYPES.has(sourceType) || body.length < 10) return NextResponse.json({ error: "情報源と原稿を確認してください" }, { status: 400 });
   if (![analysisAt, publishAt, expiresAt].every(Number.isFinite)
     || analysisAt > now + 60_000 || now - analysisAt > MAX_ANALYSIS_AGE_MS
     || publishAt < now - 5 * 60_000 || publishAt > expiresAt
     || expiresAt - analysisAt > MAX_ANALYSIS_LIFETIME_MS) {
-    return NextResponse.json({ error: "分析基準時刻・配信日時・有効期限の関係が不正、または分析が古すぎます" }, { status: 400 });
+    return NextResponse.json({ error: "日時の関係が不正です。分析は7日以内、有効期限は分析時刻から10日以内にしてください" }, { status: 400 });
   }
   const extracted = extractAnalysisSignals({ body, sourceType });
   if (action === "preview") return NextResponse.json({ extractedSignals: extracted, suggested: { analysisAt, publishAt, expiresAt, sourceLabel } });

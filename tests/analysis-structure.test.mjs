@@ -7,7 +7,7 @@ test("extracts only explicit plausible FX prices without inventing levels", () =
     body: "ドル円は157.60を上抜ければ上昇継続に注目。157.10割れでこの見方は失効。分析時刻は10時30分。",
     pair: "USD/JPY",
     stance: "BUY",
-    sourceType: "SHISHIN",
+    sourceType: "SHIJIN",
   });
   assert.equal(signals.length, 2);
   assert.equal(signals[0].levelLow, 157.6);

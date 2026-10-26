@@ -41,7 +41,7 @@ test("renders development preview metadata", async (t) => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v126<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v128<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -386,7 +386,7 @@ test("v114 stores compact positions and appends their P/L speech in both audio m
   assert.match(page, /mode4: Object\.freeze\([\s\S]*mode5: Object\.freeze/);
 });
 
-test("v121 registers authenticated expiring Shishin analysis and reuses the news audio queue", async () => {
+test("v121 registers authenticated expiring Shijin analysis and reuses the news audio queue", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const route = await readFile(new URL("../app/api/news/route.ts", import.meta.url), "utf8");
   const schema = await readFile(new URL("../db/schema.ts", import.meta.url), "utf8");
@@ -404,7 +404,7 @@ test("v118 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 126/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 128/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);

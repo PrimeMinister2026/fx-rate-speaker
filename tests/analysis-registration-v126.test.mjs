@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { extractAnalysisSignals } from "../lib/analysis-structure.ts";
 
 test("one manuscript extracts multiple pairs, roles and opposing views without forcing one signal", () => {
-  const signals = extractAnalysisSignals({ sourceType: "SHISHIN", body: [
+  const signals = extractAnalysisSignals({ sourceType: "SHIJIN", body: [
     "ドル円は157.40が上値抵抗。反落確認後は戻り売り候補。157.80超えで売りシナリオ失効。",
     "ユーロ豪ドルは1.5940〜1.5960が戻り売り候補。第一利確は1.5910。",
     "別の見方ではドル円157.20から押し目買い候補。",

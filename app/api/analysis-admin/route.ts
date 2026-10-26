@@ -91,7 +91,8 @@ export async function PATCH(request: Request) {
   if (action === "reextract") {
     const row = await db.prepare("SELECT id, body, source_type, publish_at, analysis_at, expires_at FROM market_analyses WHERE id = ?").bind(id).first<Record<string, unknown>>();
     if (!row) return NextResponse.json({ error: "原稿が見つかりません" }, { status: 404 });
-    const extracted = extractAnalysisSignals({ body: String(row.body), sourceType: String(row.source_type) as AnalysisSourceType });
+    const sourceType = String(row.source_type) === "SHISHIN" ? "SHIJIN" : String(row.source_type) as AnalysisSourceType;
+    const extracted = extractAnalysisSignals({ body: String(row.body), sourceType });
     const existing = await db.prepare("SELECT COUNT(*) AS count FROM analysis_signals WHERE analysis_id = ?").bind(id).first<{ count: number }>();
     if (Number(existing?.count ?? 0) > 0) return NextResponse.json({ error: "抽出情報が既にあるため再解析しません" }, { status: 409 });
     const statements = [];
