@@ -384,3 +384,17 @@ button.chosen { border-color:var(--gold); background:#392d0c; color:#fff1b2; box
 .oanda-status.checking { color:#d7cda9; }
 .oanda-status.unconfigured,.oanda-status.error,.oanda-status.fallback { color:#c6a657; }
 
+
+/* Preserve the selected-pair gold outline across desktop and mobile layouts. */
+.rate-row.selected,
+.rate-row.selected.rapid {
+  border:2px solid var(--gold-bright);
+  box-shadow:inset 0 0 0 1px var(--gold-dark),0 0 12px #e5a92c2b;
+}
+@media (max-width:850px) {
+  .rate-row.selected,
+  .rate-row.selected.rapid {
+    border:2px solid var(--gold-bright);
+    box-shadow:inset 0 0 0 1px var(--gold-dark),0 0 12px #e5a92c2b;
+  }
+}
