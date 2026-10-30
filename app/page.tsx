@@ -27,7 +27,13 @@ import {
   MODE5_GRAPH_WINDOW_SECONDS,
   sampleThirtyMinuteGraph,
   threeMinuteGridLines,
+  validateCurrentRapid,
 } from "@/lib/mode5-market";
+import {
+  commentaryContradiction,
+  replaceRecentPairEvent,
+  type MarketEventDirection,
+} from "@/lib/commentary-event";
 import {
   SYNTHETIC_SYMBOLS,
   applyCurrentCorrection,
@@ -42,6 +48,8 @@ import {
 } from "@/lib/synthetic";
 import { selectAdoptedRates } from "@/lib/adopted-rates";
 import { FX_RATE_SPEAKER_VERSION_LABEL } from "@/lib/version";
+import { buildNavigationPlan } from "@/lib/navigation-message";
+import { calculateThreeMinuteRsi } from "@/lib/three-minute-rsi";
 import {
   calculatePositionPips,
   positionPipsSpeech,
@@ -49,6 +57,15 @@ import {
   type PositionMap,
   type PositionSide,
 } from "@/lib/positions";
+import {
+  EMPTY_POSITION_SHORTCUT,
+  appendShortcutPrice,
+  pairForShortcutKey,
+  sanitizePositionPriceInput,
+  shortcutPositionIsValid,
+  startPositionShortcut,
+  type PositionShortcutState,
+} from "@/lib/position-shortcut";
 import {
   calendarResultSpeech,
   economicSurprise,
@@ -87,7 +104,10 @@ const CURRENCY_COLORS: Record<CurrencyCode, string> = {
   AUD: "#F59E0B",
 };
 
-const AUTO_STOP_SECONDS = 3 * 60 * 60;
+const DEFAULT_AUTO_STOP_HOURS = 3;
+const MIN_AUTO_STOP_HOURS = 1;
+const MAX_AUTO_STOP_HOURS = 12;
+const AUTO_STOP_STORAGE_KEY = "fx-rate-speaker-auto-stop-hours-v1";
 const DEFAULT_SPEECH_RATE = 1.5;
 const COMMENTARY_VISIBLE_LIMIT = 8;
 const COMMENTARY_HISTORY_RETENTION_LIMIT = 40;
@@ -158,8 +178,7 @@ function localDateTimeInput(timestamp: number) {
 }
 
 function freshAnalysisDraft(): AnalysisDraft {
-  const now = Date.now();
-  return { sourceType: "SHIJIN", sourceLabel: "", headline: "", body: "", analysisAt: localDateTimeInput(now), publishAt: localDateTimeInput(now), expiresAt: localDateTimeInput(now + 24 * 60 * 60 * 1000) };
+  return { headline: "", body: "" };
 }
 
 type Rate = { price: number; timestamp: number };
@@ -218,6 +237,8 @@ type CommentaryEntry = {
   analysisAt?: number;
   expiresAt?: number;
   stance?: "BUY" | "SELL" | "WAIT";
+  direction?: MarketEventDirection;
+  eventKey?: string;
 };
 type NewsItem = {
   id: string;
@@ -245,7 +266,7 @@ type NavigationSignal = {
   publishAt: number; analysisAt: number; expiresAt: number;
 };
 type NewsResponse = { news?: NewsItem[]; signals?: NavigationSignal[]; error?: string; sourcesOk?: number; sourcesTotal?: number };
-type AnalysisDraft = { sourceType: "SHIJIN" | "YOUTUBE" | "OTHER"; sourceLabel: string; headline: string; body: string; analysisAt: string; publishAt: string; expiresAt: string };
+type AnalysisDraft = { headline: string; body: string };
 type AnalysisStatus = "ACTIVE" | "HOLD" | "INVALID" | "EXPIRED" | "ARCHIVED";
 type ManagedSignal = { id: string; pair: string; stance: "BUY" | "SELL" | "WAIT"; levelLow: number; levelHigh: number; trigger: string; conditionText: string; invalidationText: string; message: string; environment: string; priceRole: string; status: AnalysisStatus; effectiveStatus: AnalysisStatus };
 type ManagedAnalysis = { id: string; createdAt: number; publishAt: number; analysisAt: number; expiresAt: number; headline: string; body: string; sourceType: string; sourceLabel: string; status: AnalysisStatus; effectiveStatus: AnalysisStatus; retentionDays: number; signals: ManagedSignal[] };
@@ -389,6 +410,7 @@ const MARKET_PROVERBS = [
 
 const AUDIO_MODE_STORAGE_KEY = "fx-rate-speaker-audio-mode";
 const POSITIONS_STORAGE_KEY = "fx-rate-speaker-positions-v1";
+const SHARED_SELECTION_STORAGE_KEY = "fx-shishin-selected-pairs-v1";
 
 function spokenPrice(price: number, yen: boolean) {
   return price.toFixed(yen ? 3 : 5);
@@ -893,7 +915,7 @@ function historyDisplayTtl(entry: CommentaryEntry) {
 function selectVisibleHistory(history: CommentaryEntry[], now: number) {
   return history
     .filter((entry) => now - entry.timestamp <= historyDisplayTtl(entry))
-    .sort((left, right) => historyDisplayPriority(right) - historyDisplayPriority(left) || right.timestamp - left.timestamp)
+    .sort((left, right) => right.timestamp - left.timestamp || historyDisplayPriority(right) - historyDisplayPriority(left))
     .slice(0, COMMENTARY_VISIBLE_LIMIT);
 }
 
@@ -948,11 +970,15 @@ function Sparkline({ history, movement, direction, mode, now }: {
 export default function Home() {
   const [selected, setSelected] = useState<string[]>(["USD/JPY"]);
   const selectedRef = useRef<string[]>(["USD/JPY"]);
+  const selectionUpdatedAtRef = useRef(0);
+  const selectionUploadRef = useRef<number | null>(null);
   const [intervalSeconds, setIntervalSeconds] = useState(30);
   const [rates, setRates] = useState<RateMap>({});
   const [positions, setPositions] = useState<PositionMap>({});
   const positionsRef = useRef<PositionMap>({});
   const [positionEditor, setPositionEditor] = useState<{ pair: string; side: PositionSide; entryPrice: string }>({ pair: "USD/JPY", side: "BUY", entryPrice: "" });
+  const [positionShortcut, setPositionShortcut] = useState<PositionShortcutState>(EMPTY_POSITION_SHORTCUT);
+  const positionShortcutRef = useRef<PositionShortcutState>(EMPTY_POSITION_SHORTCUT);
   const [rateSources, setRateSources] = useState<Record<string, RateSource>>({});
   const [oandaStatus, setOandaStatus] = useState<"checking" | "connected" | "unconfigured" | "error" | "fallback">("checking");
   const [errors, setErrors] = useState<Record<string, boolean>>({});
@@ -984,7 +1010,9 @@ export default function Home() {
   const speechRateRef = useRef(DEFAULT_SPEECH_RATE);
   const [status, setStatus] = useState("停止中");
   const [detail, setDetail] = useState("");
-  const [remainingSeconds, setRemainingSeconds] = useState(AUTO_STOP_SECONDS);
+  const [autoStopHours, setAutoStopHours] = useState(DEFAULT_AUTO_STOP_HOURS);
+  const autoStopHoursRef = useRef(DEFAULT_AUTO_STOP_HOURS);
+  const [remainingSeconds, setRemainingSeconds] = useState(DEFAULT_AUTO_STOP_HOURS * 60 * 60);
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [marketNotices, setMarketNotices] = useState<MarketNotice[]>(DEFAULT_MARKET_NOTICES);
   const [marketNoticeAdminOpen, setMarketNoticeAdminOpen] = useState(false);
@@ -1206,16 +1234,82 @@ export default function Home() {
     } catch {
       // Positions remain available for this session when persistent storage is unavailable.
     }
+    void fetch("/api/user-state",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({positions:next})}).catch(()=>{});
+  }
+
+  function applySelection(next: string[]) {
+    const allowed = new Set(PAIRS.map((pair) => pair.code));
+    const clean = [...new Set(next.filter((pair) => allowed.has(pair)))];
+    selectedRef.current = clean;
+    setSelected(clean);
+    try { window.localStorage.setItem(SHARED_SELECTION_STORAGE_KEY, JSON.stringify(clean)); } catch {}
+    return clean;
+  }
+
+  function persistSelection(next: string[]) {
+    const clean = applySelection(next);
+    if (selectionUploadRef.current) window.clearTimeout(selectionUploadRef.current);
+    selectionUploadRef.current = window.setTimeout(() => {
+      void fetch("/api/selection", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ selected: clean }) })
+        .then(async (response) => { if (response.ok) selectionUpdatedAtRef.current = Number((await response.json()).updatedAt) || selectionUpdatedAtRef.current; })
+        .catch(() => {});
+    }, 80);
+  }
+
+  async function loadSharedSelection(seedWhenMissing = false) {
+    try {
+      const response = await fetch("/api/selection", { cache: "no-store" }); if (!response.ok) return;
+      const data = await response.json() as { selected?: string[]; updatedAt?: number | null };
+      if (data.updatedAt == null) { if (seedWhenMissing) persistSelection(selectedRef.current); return; }
+      const updatedAt = Number(data.updatedAt) || 0; if (updatedAt <= selectionUpdatedAtRef.current) return;
+      selectionUpdatedAtRef.current = updatedAt; applySelection(Array.isArray(data.selected) ? data.selected : []);
+    } catch {}
+  }
+
+  function adjustAutoStopHours(delta: number) {
+    const current = autoStopHoursRef.current;
+    const next = Math.max(MIN_AUTO_STOP_HOURS, Math.min(MAX_AUTO_STOP_HOURS, current + delta));
+    if (next === current) return;
+    autoStopHoursRef.current = next;
+    setAutoStopHours(next);
+    try {
+      window.localStorage.setItem(AUTO_STOP_STORAGE_KEY, String(next));
+    } catch {
+      // The selected duration still works for this session when storage is unavailable.
+    }
+    if (runningRef.current) {
+      endAtRef.current += (next - current) * 60 * 60 * 1000;
+      setRemainingSeconds(Math.max(0, Math.ceil((endAtRef.current - Date.now()) / 1000)));
+    } else {
+      setRemainingSeconds(next * 60 * 60);
+    }
   }
 
   function savePosition() {
     const entryPrice = Number(positionEditor.entryPrice);
     if (!Number.isFinite(entryPrice) || entryPrice <= 0) return;
     persistPositions({ [positionEditor.pair]: { pair: positionEditor.pair, side: positionEditor.side, entryPrice } });
+    persistSelection([positionEditor.pair]);
+  }
+
+  function updatePositionShortcut(next: PositionShortcutState) {
+    positionShortcutRef.current = next;
+    setPositionShortcut(next);
+  }
+
+  function saveShortcutPosition(state: PositionShortcutState) {
+    if (!shortcutPositionIsValid(state) || !state.pair || !state.side) return false;
+    const entryPrice = Number(state.price);
+    setPositionEditor({ pair: state.pair, side: state.side, entryPrice: state.price });
+    persistPositions({ [state.pair]: { pair: state.pair, side: state.side, entryPrice } });
+    persistSelection([state.pair]);
+    updatePositionShortcut(EMPTY_POSITION_SHORTCUT);
+    return true;
   }
 
   function clearPosition() {
     persistPositions({});
+    persistSelection([]);
     setPositionEditor((current) => ({ ...current, entryPrice: "" }));
   }
 
@@ -1613,13 +1707,29 @@ export default function Home() {
       };
     }
     if (mode5Analysis) {
-      const transition = transitionMovement(existingTracker, mode5Analysis.candidate, Date.now(), mode5Analysis.intensity);
+      const rapidCandidate = mode5Analysis.candidate === "RAPID_UP" || mode5Analysis.candidate === "RAPID_DOWN";
+      const consistency = rapidCandidate
+        ? validateCurrentRapid(timeHistory, pipSize, mode5Analysis.candidate, Date.now() / 1000)
+        : null;
+      const candidate = rapidCandidate && !consistency?.valid
+        ? mode5Analysis.windows[0].direction === "up" ? "UP_TREND"
+          : mode5Analysis.windows[0].direction === "down" ? "DOWN_TREND" : "NORMAL"
+        : mode5Analysis.candidate;
+      const transition = transitionMovement(existingTracker, candidate, Date.now(), mode5Analysis.intensity);
       movementTrackerRef.current[code] = transition.tracker;
-      if (mode5Analysis.candidate === "RAPID_UP" || mode5Analysis.candidate === "RAPID_DOWN") {
+      if (rapidCandidate) {
         const oneMinute = mode5Analysis.windows.find((window) => window.minutes === 1)!;
-        console.debug("[FX Rate Speaker mode5 RAPID audit]", {
+        const audit = {
           pair: code,
-          direction: mode5Analysis.candidate,
+          candidate: mode5Analysis.candidate,
+          latestPrice: consistency?.latestPrice,
+          startPrice1m: consistency?.startPrice1m,
+          endPrice1m: consistency?.endPrice1m,
+          netPips1m: oneMinute.netPips,
+          netPips3m: mode5Analysis.windows.find((window) => window.minutes === 3)?.netPips,
+          netPips5m: mode5Analysis.windows.find((window) => window.minutes === 5)?.netPips,
+          efficiency: oneMinute.efficiency,
+          persistence: oneMinute.persistence,
           windows: Object.fromEntries(mode5Analysis.windows.map((window) => [`${window.minutes}m`, {
             netPips: window.netPips,
             efficiency: window.efficiency,
@@ -1632,7 +1742,10 @@ export default function Home() {
           rangeFiveMinutes: mode5Analysis.rangeFiveMinutes,
           oneMinuteRangeRatio: mode5Analysis.rangeRatio,
           accelerationRatio: mode5Analysis.accelerationRatio,
-        });
+          consistency: consistency?.reason,
+        };
+        if (!consistency?.valid) console.error("[FX Rate Speaker RAPID suppressed: final consistency]", audit);
+        else console.debug("[FX Rate Speaker mode5 RAPID audit]", audit);
         return {
           notification: transition.notification,
           state: transition.tracker.state,
@@ -1806,18 +1919,27 @@ export default function Home() {
 
   function queueMode5RapidAudioEvent(
     pair: (typeof PAIRS)[number],
-    direction: "RAPID_UP" | "RAPID_DOWN",
-    rate: Rate,
-    causeText?: string,
+    event: CommentaryEntry,
   ) {
+    const direction = event.direction === "UP" ? "RAPID_UP" : "RAPID_DOWN";
     const runId = runIdRef.current;
-    const price = spokenPrice(rate.price, pair.yen);
-    const positionSpeech = positionsRef.current[pair.code]
-      ? positionPipsSpeech(calculatePositionPips(positionsRef.current[pair.code], rate.price, pair.yen))
-      : null;
-    const speech = `${pair.name}、${direction === "RAPID_UP" ? "急騰" : "急落"}。${price}${positionSpeech ? `。${positionSpeech}` : ""}${causeText ? `。${causeText}` : ""}`;
+    const speech = event.text;
     void enqueueMode5AudioEvent({ type: direction, pair: pair.code, speech }, async () => {
       if (runId !== runIdRef.current || !soundOnRef.current) return;
+      const consistency = validateCurrentRapid(
+        sparklineHistoriesRef.current[pair.code] ?? [],
+        pair.yen ? 0.01 : 0.0001,
+        direction,
+        Date.now() / 1000,
+      );
+      const contradiction = commentaryContradiction(event);
+      const currentStateMatches = movementTrackerRef.current[pair.code]?.state === direction;
+      if (!consistency.valid || !currentStateMatches || contradiction) {
+        console.error("[FX Rate Speaker RAPID audio suppressed]", {
+          pair: pair.code, direction, currentStateMatches, contradiction, ...consistency,
+        });
+        return;
+      }
       extendRapidDisplayForAudio(pair.code);
       await playMode5RapidWarning(direction, runId);
       console.debug("[FX Rate Speaker audio lead sound complete]", { type: direction, pair: pair.code });
@@ -1907,25 +2029,16 @@ export default function Home() {
           ...analysisDraft,
           action: analysisReviewed ? "register" : "preview",
           signals: analysisPreview,
-          analysisAt: new Date(analysisDraft.analysisAt).toISOString(),
-          publishAt: new Date(analysisDraft.publishAt).toISOString(),
-          expiresAt: new Date(analysisDraft.expiresAt).toISOString(),
         }),
       });
-      const data = await response.json() as { error?: string; extractedSignals?: NavigationSignal[]; suggested?: { analysisAt?: number; publishAt?: number; expiresAt?: number; sourceLabel?: string } };
+      const data = await response.json() as { error?: string; extractedSignals?: NavigationSignal[]; suggested?: { analysisAt?: number; publishAt?: number; expiresAt?: number; sourceType?: "SHIJIN" | "YOUTUBE" | "OTHER"; sourceLabel?: string } };
       if (!response.ok) throw new Error(data.error || "原稿を登録できませんでした");
       if (!analysisReviewed) {
         setAnalysisPreview(data.extractedSignals ?? []);
         setAnalysisReviewed(true);
-        if (data.suggested) setAnalysisDraft((draft) => ({
-          ...draft,
-          sourceLabel: data.suggested?.sourceLabel ?? draft.sourceLabel,
-          analysisAt: data.suggested?.analysisAt ? localDateTimeInput(data.suggested.analysisAt) : draft.analysisAt,
-          publishAt: data.suggested?.publishAt ? localDateTimeInput(data.suggested.publishAt) : draft.publishAt,
-          expiresAt: data.suggested?.expiresAt ? localDateTimeInput(data.suggested.expiresAt) : draft.expiresAt,
-        }));
         setAnalysisSaveState("idle");
-        setAnalysisSaveMessage(data.extractedSignals?.length ? "抽出結果を確認・訂正してから登録してください。" : "価格情報を抽出できませんでした。原稿だけを保存できます。");
+        const sourceName = data.suggested?.sourceLabel ? `自動分類：${data.suggested.sourceLabel}。` : "";
+        setAnalysisSaveMessage(data.extractedSignals?.length ? `${sourceName}抽出結果を確認・訂正してから登録してください。` : `${sourceName}価格情報を抽出できませんでした。原稿だけを保存できます。`);
         return;
       }
       setAnalysisSaveState("saved");
@@ -2106,6 +2219,17 @@ export default function Home() {
         const restored = restoreAudioMode(saved);
         setAudioMode(restored);
         audioModeRef.current = restored;
+        const savedAutoStopHours = Number(window.localStorage.getItem(AUTO_STOP_STORAGE_KEY));
+        if (Number.isInteger(savedAutoStopHours) && savedAutoStopHours >= MIN_AUTO_STOP_HOURS && savedAutoStopHours <= MAX_AUTO_STOP_HOURS) {
+          autoStopHoursRef.current = savedAutoStopHours;
+          setAutoStopHours(savedAutoStopHours);
+          setRemainingSeconds(savedAutoStopHours * 60 * 60);
+        }
+        try {
+          const localSelection = JSON.parse(window.localStorage.getItem(SHARED_SELECTION_STORAGE_KEY) ?? "null");
+          if (Array.isArray(localSelection)) applySelection(localSelection);
+        } catch {}
+        void loadSharedSelection(true);
         const restoredPositions = restorePositions(
           window.localStorage.getItem(POSITIONS_STORAGE_KEY),
           PAIRS.map((pair) => pair.code),
@@ -2115,6 +2239,25 @@ export default function Home() {
         positionsRef.current = singlePosition;
         setPositions(singlePosition);
         if (restoredPosition) setPositionEditor({ pair: restoredPosition.pair, side: restoredPosition.side, entryPrice: String(restoredPosition.entryPrice) });
+        void fetch("/api/user-state", { cache: "no-store" }).then(async (response) => {
+          if (!response.ok) return;
+          const remote = await response.json() as { positions?: PositionMap; updatedAt?: number | null };
+          if (remote.updatedAt == null) {
+            if (restoredPosition) {
+              void fetch("/api/user-state", {
+                method: "PUT",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ positions: singlePosition }),
+              }).catch(() => {});
+            }
+            return;
+          }
+          const synced=restorePositions(JSON.stringify(remote.positions??{}),PAIRS.map(pair=>pair.code));
+          const saved=Object.values(synced)[0], single=saved?{[saved.pair]:saved}:{};
+          positionsRef.current=single;setPositions(single);
+          window.localStorage.setItem(POSITIONS_STORAGE_KEY,JSON.stringify(single));
+          if(saved)setPositionEditor({pair:saved.pair,side:saved.side,entryPrice:String(saved.entryPrice)});
+        }).catch(()=>{});
         const seen = JSON.parse(window.localStorage.getItem(NEWS_SEEN_STORAGE_KEY) ?? "[]") as string[];
         seenNewsRef.current = new Set(seen.slice(-200));
         const shadow = JSON.parse(window.localStorage.getItem(OANDA_SHADOW_STORAGE_KEY) ?? "[]") as OandaShadowRecord[];
@@ -2189,9 +2332,9 @@ export default function Home() {
       audioRef.current.currentTime = 0;
     }
     setRunning(false);
-    setStatus(autoStopped ? "3時間経過・自動停止" : "停止中");
+    setStatus(autoStopped ? `${autoStopHoursRef.current}時間経過・自動停止` : "停止中");
     setDetail("");
-    setRemainingSeconds(autoStopped ? 0 : AUTO_STOP_SECONDS);
+    setRemainingSeconds(autoStopped ? 0 : autoStopHoursRef.current * 60 * 60);
   }
 
   function resetSessionAnalysisHistory() {
@@ -2235,6 +2378,7 @@ export default function Home() {
         kind: "急変",
         text: `${name}、${movement.notification === "RAPID_UP" ? "急騰。" : "急落。"}`,
         level: "rapid",
+        direction: movement.notification === "RAPID_UP" ? "UP" : "DOWN",
         eventKey: movement.notification,
         priority: 100,
         cooldownMs: 0,
@@ -2261,6 +2405,7 @@ export default function Home() {
           kind: high ? "高値更新" : "安値更新",
           text: flowCommentary(name, flow, movement.state, breakout.side),
           level: "important",
+          direction: high ? "UP" : "DOWN",
           eventKey: high ? "HIGH_BREAK" : "LOW_BREAK",
           priority: 70,
           cooldownMs: BREAKOUT_COOLDOWN_MS,
@@ -2275,6 +2420,7 @@ export default function Home() {
         kind: rising ? "上昇傾向" : "下落傾向",
         text: `${name}、${rising ? "上昇傾向。" : "下落傾向。"}`,
         level: "important",
+        direction: rising ? "UP" : "DOWN",
         eventKey: movement.notification,
         priority: 60,
       };
@@ -2327,6 +2473,8 @@ export default function Home() {
         kind: candidate.kind,
         text: candidate.text,
         level: candidate.level,
+        direction: candidate.direction,
+        eventKey: candidate.eventKey,
       };
     }
     if (now - lastSummaryAtRef.current < SUMMARY_INTERVAL_MS) return null;
@@ -2348,25 +2496,15 @@ export default function Home() {
   }
 
   function addCommentaryHistory(entry: CommentaryEntry) {
+    const contradiction = commentaryContradiction(entry);
+    if (contradiction) {
+      console.error("[FX Rate Speaker commentary suppressed: contradiction]", { contradiction, entry });
+      return;
+    }
     setCommentaryHistory((current) => {
       if (entry.source !== "COMMENTARY") return [entry, ...current].slice(0, COMMENTARY_HISTORY_RETENTION_LIMIT);
-      const index = current.findIndex((item) => item.source === "COMMENTARY"
-        && item.pair === entry.pair
-        && Math.abs(entry.timestamp - item.timestamp) <= COMMENTARY_MERGE_MS);
-      if (index < 0) return [entry, ...current].slice(0, COMMENTARY_HISTORY_RETENTION_LIMIT);
-      const prior = current[index];
-      const kinds = [...new Set([prior.kind, entry.kind].flatMap((kind) => kind.split("・")))];
-      if (kinds.includes("急変")) kinds.splice(0, kinds.length, "急変", ...kinds.filter((kind) => kind !== "急変"));
-      const merged: CommentaryEntry = {
-        ...prior,
-        ...entry,
-        id: `${entry.id}-merged`,
-        kind: kinds.join("・"),
-        level: prior.level === "rapid" || entry.level === "rapid" ? "rapid"
-          : prior.level === "important" || entry.level === "important" ? "important" : "normal",
-        text: entry.level === "rapid" ? entry.text : prior.level === "rapid" ? prior.text : entry.text,
-      };
-      return [merged, ...current.filter((_, itemIndex) => itemIndex !== index)].slice(0, COMMENTARY_HISTORY_RETENTION_LIMIT);
+      return replaceRecentPairEvent(current, entry, COMMENTARY_MERGE_MS)
+        .slice(0, COMMENTARY_HISTORY_RETENTION_LIMIT);
     });
   }
 
@@ -2612,7 +2750,8 @@ export default function Home() {
 
   function evaluateNavigationSignals(freshRates: RateMap, previousRates: RateMap, now = Date.now()) {
     const entries: QueuedCommentary[] = [];
-    navigationSignalsRef.current.forEach((signal) => {
+    const rolePriority: Record<string, number> = { ENTRY: 0, INVALIDATION: 1, STOP_LOSS: 2, TAKE_PROFIT: 3, TARGET: 4, SUPPORT: 5, RESISTANCE: 5, WATCH: 6 };
+    [...navigationSignalsRef.current].sort((left, right) => (rolePriority[left.priceRole ?? "WATCH"] ?? 9) - (rolePriority[right.priceRole ?? "WATCH"] ?? 9)).forEach((signal) => {
       if (signal.publishAt > now || signal.expiresAt <= now || !selectedRef.current.includes(signal.pair)) return;
       const current = freshRates[signal.pair]?.price;
       if (!Number.isFinite(current)) return;
@@ -2631,23 +2770,20 @@ export default function Home() {
               : isApproaching;
       const event = conflict && isApproaching ? "CONFLICT" : conditionMet && signal.trigger !== "APPROACH" ? signal.trigger : isApproaching ? "APPROACH" : null;
       if (!event) return;
-      const key = `${signal.id}:${event}`;
+      const key = `${signal.analysisId}:${signal.pair}:${event}`;
       const lastAt = navigationAlertedRef.current.get(key) ?? 0;
       if (now - lastAt < NAVIGATION_ALERT_COOLDOWN_MS) return;
       rememberNavigationAlert(key, now);
-      const price = displayPrice(current!, signal.pair.endsWith("/JPY"));
       const invalidationEvent = event !== "APPROACH" && /失効|無効|損切り|撤退|シナリオ.*崩/.test(signal.conditionText);
-      const suffix = event === "CONFLICT" ? `現在${price}。買いと売りの見解が対立しているため、売買判断を見送ります。`
-        : event === "APPROACH" ? `現在${price}。接近のみで、エントリー成立ではありません。`
-        : invalidationEvent ? `現在${price}。シナリオ失効条件の候補です。`
-          : `現在${price}。条件変化です。エントリーは追加確認が必要です。`;
+      const relatedSignals = navigationSignalsRef.current.filter((other) => other.analysisId === signal.analysisId && other.pair === signal.pair && other.expiresAt > now);
+      const plan = buildNavigationPlan({ signal, relatedSignals, currentPrice: current!, conflict: event === "CONFLICT", invalidation: invalidationEvent });
       entries.push({
         id: `NAV:${signal.id}:${event}:${now}`,
         timestamp: now,
         source: "ANALYSIS",
         pair: signal.pair,
-        kind: event === "CONFLICT" ? "見解対立" : event === "APPROACH" ? "注目水準接近" : invalidationEvent ? "失効条件" : "条件変化",
-        text: `${signal.message.slice(0, 72)} ${suffix}`.slice(0, 120),
+        kind: event === "CONFLICT" ? "見送り" : invalidationEvent ? "撤退・見直し" : "売買計画",
+        text: plan,
         headline: `${signal.sourceType === "SHIJIN" ? "四神" : signal.sourceType === "YOUTUBE" ? "動画分析" : "相場分析"}｜基準 ${new Date(signal.analysisAt).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}`,
         level: event === "APPROACH" ? "normal" : "important",
         priority: event === "APPROACH" ? 62 : 78,
@@ -2667,7 +2803,6 @@ export default function Home() {
     const causeEntries: QueuedCommentary[] = [];
     const states: Array<{ name: string; state: MovementState; flow: FlowSnapshot }> = [];
     const displayUpdates: Record<string, RateDisplayState> = {};
-    const queuedMode5RapidPairs = new Set<string>();
     const now = Date.now();
     evaluateNavigationSignals(freshRates, previousAnalysisRatesRef.current, now);
     PAIRS.forEach((pair) => {
@@ -2698,10 +2833,6 @@ export default function Home() {
         const usefulCause = cause.confidence !== "UNKNOWN";
         const causeKey = `${pair.code}:${cause.sourceId}`;
         const lastCauseAt = causeCooldownRef.current.get(causeKey) ?? 0;
-        if (audioModeFeatures(audioModeRef.current).timeWindowRapid) {
-          queuedMode5RapidPairs.add(pair.code);
-          queueMode5RapidAudioEvent(pair, movement.notification, analysisRate, usefulCause ? cause.text : undefined);
-        }
         if (usefulCause && now - lastCauseAt >= CAUSE_COOLDOWN_MS) {
           causeCooldownRef.current.set(causeKey, now);
           const causeEntry: QueuedCommentary = {
@@ -2732,7 +2863,16 @@ export default function Home() {
       }
       states.push({ name: pair.name, state: movement.state, flow });
       if (movement.state === "RAPID_UP" || movement.state === "RAPID_DOWN") {
-        rapidDisplayRef.current[pair.code] = { state: movement.state, until: now + RAPID_DISPLAY_HOLD_MS };
+        const consistency = validateCurrentRapid(history, pair.yen ? 0.01 : 0.0001, movement.state, now / 1000);
+        if (consistency.valid) {
+          rapidDisplayRef.current[pair.code] = { state: movement.state, until: now + RAPID_DISPLAY_HOLD_MS };
+        } else {
+          delete rapidDisplayRef.current[pair.code];
+          console.error("[FX Rate Speaker RAPID display suppressed]", { pair: pair.code, candidate: movement.state, ...consistency });
+        }
+      } else {
+        // Display hold never outlives a changed current state.
+        delete rapidDisplayRef.current[pair.code];
       }
       const heldRapid = rapidDisplayRef.current[pair.code];
       const displayMovement = heldRapid && heldRapid.until > now ? heldRapid.state : movement.state;
@@ -2764,18 +2904,23 @@ export default function Home() {
     setRateDisplayStates((current) => ({ ...current, ...displayUpdates }));
     if (!audioModeFeatures(audioModeRef.current).commentary) return;
     const selectedCommentary = chooseCommentary(candidates, states, Date.now());
-    const queuedRapidCommentary = selectedCommentary?.level === "rapid"
-      && queuedMode5RapidPairs.has(selectedCommentary.pair);
     if (!selectedCommentary && !causeEntries.length) return;
     const priority = selectedCommentary ? candidates.find((candidate) =>
       selectedCommentary.id.includes(candidate.eventKey) && selectedCommentary.pair === candidate.pair,
     )?.priority ?? 20 : 0;
     pendingCommentaryRef.current = [
       ...pendingCommentaryRef.current,
-      ...(selectedCommentary && !queuedRapidCommentary ? [{ ...selectedCommentary, priority }] : []),
+      ...(selectedCommentary && !(selectedCommentary.level === "rapid" && audioModeFeatures(audioModeRef.current).timeWindowRapid)
+        ? [{ ...selectedCommentary, priority }] : []),
       ...causeEntries,
     ].sort((left, right) => right.priority - left.priority || right.timestamp - left.timestamp).slice(0, 8);
-    if (selectedCommentary) addCommentaryHistory(selectedCommentary);
+    if (selectedCommentary) {
+      addCommentaryHistory(selectedCommentary);
+      if (selectedCommentary.level === "rapid" && audioModeFeatures(audioModeRef.current).timeWindowRapid) {
+        const pair = PAIRS.find((item) => item.code === selectedCommentary.pair);
+        if (pair) queueMode5RapidAudioEvent(pair, selectedCommentary);
+      }
+    }
     causeEntries.forEach(addCommentaryHistory);
   }
 
@@ -2996,6 +3141,22 @@ export default function Home() {
           const type: Mode5AudioEventType = indicator ? "INDICATOR" : "COMMENTARY";
           await enqueueMode5AudioEvent({ type, pair: commentary.pair, speech: commentary.text }, async () => {
             if (runId !== runIdRef.current || !soundOnRef.current) return;
+            if (commentary.level === "rapid") {
+              const pair = PAIRS.find((item) => item.code === commentary.pair);
+              const direction = commentary.direction === "UP" ? "RAPID_UP" : commentary.direction === "DOWN" ? "RAPID_DOWN" : null;
+              const consistency = pair && direction
+                ? validateCurrentRapid(sparklineHistoriesRef.current[pair.code] ?? [], pair.yen ? 0.01 : 0.0001, direction, Date.now() / 1000)
+                : null;
+              const contradiction = commentaryContradiction(commentary);
+              const currentStateMatches = pair && direction
+                ? movementTrackerRef.current[pair.code]?.state === direction : false;
+              if (!consistency?.valid || !currentStateMatches || contradiction) {
+                console.error("[FX Rate Speaker queued RAPID suppressed]", {
+                  pair: commentary.pair, direction, currentStateMatches, contradiction, consistency,
+                });
+                return;
+              }
+            }
             const leadSound: LeadSound = commentary.source === "NEWS"
               ? (commentary.importance ?? "NEWS_L1")
               : commentary.level === "rapid" ? "PRICE_RAPID" : "NONE";
@@ -3089,8 +3250,9 @@ export default function Home() {
     runningRef.current = true;
     setRunning(true);
     setStatus("開始");
-    endAtRef.current = Date.now() + AUTO_STOP_SECONDS * 1000;
-    setRemainingSeconds(AUTO_STOP_SECONDS);
+    const autoStopSeconds = autoStopHoursRef.current * 60 * 60;
+    endAtRef.current = Date.now() + autoStopSeconds * 1000;
+    setRemainingSeconds(autoStopSeconds);
     workerRef.current?.postMessage({ type: "clockStart", runId });
     workerRef.current?.postMessage({ type: "graphStart", runId });
     startOandaPrimary(runId);
@@ -3116,14 +3278,17 @@ export default function Home() {
   }
 
   function togglePair(code: string) {
-    setSelected((current) => {
-      const next = current.includes(code)
-        ? current.filter((item) => item !== code)
-        : [...current, code];
-      selectedRef.current = next;
-      return next;
-    });
+    const current = selectedRef.current;
+    persistSelection(current.includes(code) ? current.filter((item) => item !== code) : [...current, code]);
   }
+
+  useEffect(() => {
+    const timer = window.setInterval(() => { void loadSharedSelection(); }, 3000);
+    const onFocus = () => { void loadSharedSelection(); };
+    const onVisibility = () => { if (document.visibilityState === "visible") void loadSharedSelection(); };
+    window.addEventListener("focus", onFocus); document.addEventListener("visibilitychange", onVisibility);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onVisibility); if (selectionUploadRef.current) window.clearTimeout(selectionUploadRef.current); };
+  }, []);
 
   useEffect(() => {
     const workerSource = `
@@ -3190,6 +3355,8 @@ export default function Home() {
         || (target instanceof HTMLInputElement
           && ["text", "search", "url", "email", "tel", "password"].includes(target.type))
         || (target instanceof HTMLElement && target.isContentEditable);
+      // Core audio shortcuts keep priority even while the position shortcut is open.
+      // Text-entry spaces and letters retain their native behavior; other focused controls do not block shortcuts.
       const isSpace = event.code === "Space" || event.key === " " || event.key === "Spacebar";
       if (isSpace && !isTextEntry) {
         event.preventDefault();
@@ -3198,17 +3365,74 @@ export default function Home() {
         void toggleRunning();
         return;
       }
-      if (event.repeat) return;
-      const isFormControl = target instanceof HTMLInputElement
-        || target instanceof HTMLTextAreaElement
-        || target instanceof HTMLSelectElement
-        || (target instanceof HTMLElement && target.isContentEditable);
-      if ((event.key === "m" || event.key === "M") && !isFormControl) {
+      if ((event.key === "m" || event.key === "M") && !isTextEntry) {
         event.preventDefault();
         event.stopPropagation();
+        if (event.repeat || event.isComposing) return;
         applySoundEnabled(!soundOnRef.current);
         return;
       }
+      const shortcut = positionShortcutRef.current;
+      if (shortcut.active) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat || event.isComposing) return;
+        if (event.key === "Escape") {
+          updatePositionShortcut(EMPTY_POSITION_SHORTCUT);
+          return;
+        }
+        if (event.key === "q" || event.key === "Q") {
+          clearPosition();
+          updatePositionShortcut(EMPTY_POSITION_SHORTCUT);
+          return;
+        }
+        if (event.key === "p" || event.key === "P") {
+          updatePositionShortcut(startPositionShortcut());
+          return;
+        }
+        if (shortcut.stage === "PAIR") {
+          const pair = pairForShortcutKey(event.key);
+          if (!pair) return;
+          const next = { ...shortcut, stage: "PRICE" as const, pair, price: "", side: null };
+          updatePositionShortcut(next);
+          setPositionEditor((current) => ({ ...current, pair, entryPrice: "" }));
+          return;
+        }
+        if (event.key === "l" || event.key === "L" || event.key === "s" || event.key === "S") {
+          const side: PositionSide = event.key.toLowerCase() === "l" ? "BUY" : "SELL";
+          const next = { ...shortcut, side };
+          updatePositionShortcut(next);
+          setPositionEditor((current) => ({ ...current, side }));
+          return;
+        }
+        if (event.key === "Enter") {
+          saveShortcutPosition(shortcut);
+          return;
+        }
+        const price = appendShortcutPrice(shortcut.price, event.key);
+        if (price !== shortcut.price) {
+          const next = { ...shortcut, price };
+          updatePositionShortcut(next);
+          setPositionEditor((current) => ({ ...current, entryPrice: price }));
+        }
+        return;
+      }
+      if ((event.key === "p" || event.key === "P") && !isTextEntry) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat || event.isComposing) return;
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        updatePositionShortcut(startPositionShortcut());
+        return;
+      }
+      if ((event.key === "q" || event.key === "Q") && !isTextEntry) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat || event.isComposing) return;
+        clearPosition();
+        return;
+      }
+      if (event.repeat) return;
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         event.preventDefault();
         event.stopPropagation();
@@ -3219,7 +3443,23 @@ export default function Home() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   });
 
-  const latestCommentary = [...commentaryHistory].sort((left, right) => right.timestamp - left.timestamp)[0];
+  const latestCommentary = [...commentaryHistory]
+    .sort((left, right) => right.timestamp - left.timestamp)
+    .find((entry) => {
+      if (commentaryContradiction(entry)) return false;
+      if (entry.source !== "COMMENTARY" || entry.level !== "rapid") return true;
+      if (currentTime - entry.timestamp > RAPID_DISPLAY_HOLD_MS) return false;
+      const pair = PAIRS.find((item) => item.code === entry.pair);
+      const direction = entry.direction === "UP" ? "RAPID_UP" : entry.direction === "DOWN" ? "RAPID_DOWN" : null;
+      if (!pair || !direction) return false;
+      if (rateDisplayStates[pair.code]?.movement !== direction) return false;
+      return validateCurrentRapid(
+        sparklineHistories[pair.code] ?? [],
+        pair.yen ? 0.01 : 0.0001,
+        direction,
+        currentTime / 1000,
+      ).valid;
+    });
   const visibleCommentaryHistory = selectVisibleHistory(commentaryHistory, currentTime);
   const currentMarketNotice = activeMarketNotice(marketNotices, currentTime);
   const marketMessage = currentMarketNotice?.message || fallbackMarketProverb(currentTime);
@@ -3234,6 +3474,10 @@ export default function Home() {
     windowMinutes,
     calculateCurrencyStrength(strengthHistories, windowMinutes),
   ])) as Record<number, ReturnType<typeof calculateCurrencyStrength>>, [strengthHistories]);
+  const threeMinuteRsi = useMemo(() => Object.fromEntries(PAIRS.map((pair) => [
+    pair.code,
+    calculateThreeMinuteRsi(strengthHistories[pair.code] ?? [], Math.floor(currentTime / 1000)),
+  ])), [strengthHistories, currentTime]);
   const marketVolatility = useMemo(() => marketVolatilityLevel(sparklineHistories), [sparklineHistories]);
   useEffect(() => {
     const nextDisplayScores: Record<number, Record<string, number>> = {};
@@ -3296,13 +3540,13 @@ export default function Home() {
             </div>
             <div className="brand-meta"><strong>{FX_RATE_SPEAKER_VERSION_LABEL}</strong><span className={running ? "live" : ""}>{status}</span></div>
           </header>
-          <form className="position-entry" aria-label="ポジション入力" onSubmit={(event) => { event.preventDefault(); savePosition(); }}>
-            <div className="position-entry-head"><strong>POSITION</strong><span>1ペア</span></div>
+          <form className={`position-entry ${positionShortcut.active ? "shortcut-active" : ""}`} aria-label="ポジション入力" onSubmit={(event) => { event.preventDefault(); savePosition(); }}>
+            <div className="position-entry-head"><strong>POSITION</strong><span aria-live="polite">{positionShortcut.active ? positionShortcut.stage === "PAIR" ? "P：ペア番号 1–9 / 0" : `${positionShortcut.pair}｜${positionShortcut.price || "レート入力"}｜${positionShortcut.side === "BUY" ? "L" : positionShortcut.side === "SELL" ? "S" : "L/S"}` : "Pで入力・Qで解除"}</span></div>
             <div className="position-entry-fields">
               <select value={positionEditor.pair} aria-label="通貨ペア" onChange={(event) => { const pair = event.target.value; const existing = positionsRef.current[pair]; setPositionEditor({ pair, side: existing?.side ?? positionEditor.side, entryPrice: existing ? String(existing.entryPrice) : "" }); }}>
                 {PAIRS.map((pair) => <option key={pair.code} value={pair.code}>{pair.code}</option>)}
               </select>
-              <input type="number" min="0" step="0.00001" inputMode="decimal" required placeholder="レート" aria-label="建値レート" value={positionEditor.entryPrice} onChange={(event) => setPositionEditor((current) => ({ ...current, entryPrice: event.target.value }))} />
+              <input type="text" inputMode="decimal" required placeholder="レート" aria-label="建値レート" value={positionEditor.entryPrice} onChange={(event) => { const entryPrice = sanitizePositionPriceInput(event.target.value); setPositionEditor((current) => ({ ...current, entryPrice })); }} />
               <div className="position-entry-side" role="group" aria-label="LまたはS">
                 <button type="button" className={positionEditor.side === "BUY" ? "chosen long" : "long"} onClick={() => setPositionEditor((current) => ({ ...current, side: "BUY" }))}>L</button>
                 <button type="button" className={positionEditor.side === "SELL" ? "chosen short" : "short"} onClick={() => setPositionEditor((current) => ({ ...current, side: "SELL" }))}>S</button>
@@ -3359,7 +3603,14 @@ export default function Home() {
               <input type="checkbox" checked={soundOn} onChange={(event) => applySoundEnabled(event.target.checked)} />
               <span>音声 {soundOn ? "ON" : "OFF"}（M）</span>
             </label>
-            <div className={`countdown ${running ? "active" : ""}`}><span>自動停止</span><strong>{formatRemaining(remainingSeconds)}</strong></div>
+            <div className={`countdown ${running ? "active" : ""}`}>
+              <span>自動停止</span>
+              <div className="duration-adjust" role="group" aria-label="読み上げ時間">
+                <button type="button" onClick={() => adjustAutoStopHours(-1)} disabled={autoStopHours <= MIN_AUTO_STOP_HOURS} aria-label="読み上げ時間を1時間減らす">−</button>
+                <strong>{formatRemaining(remainingSeconds)}</strong>
+                <button type="button" onClick={() => adjustAutoStopHours(1)} disabled={autoStopHours >= MAX_AUTO_STOP_HOURS} aria-label="読み上げ時間を1時間増やす">＋</button>
+              </div>
+            </div>
           </div>
           <div className="strength-grid" aria-label="通貨強弱">
             {CURRENCY_STRENGTH_WINDOWS.map((windowMinutes) => (
@@ -3401,6 +3652,7 @@ export default function Home() {
               const positionPips = position && visibleRate
                 ? calculatePositionPips(position, visibleRate.price, pair.yen)
                 : null;
+              const rsi = threeMinuteRsi[pair.code];
               return (
                 <article className={`rate-row state-${movement.toLowerCase()} volatility-v${volatility} ${volatility >= 4 ? "volatility-high" : ""} ${selected.includes(pair.code) ? "selected" : ""} ${displayFailed ? "error" : ""} ${rapid ? "rapid" : ""}`} key={pair.code}
                   onClick={() => togglePair(pair.code)} aria-pressed={selected.includes(pair.code)}
@@ -3409,11 +3661,15 @@ export default function Home() {
                   aria-label={`${pair.code}を読み上げ対象${selected.includes(pair.code) ? "から外す" : "にする"}`}>
                   <div className="rate-identity">
                     <div className="rate-title"><span className="selection-dot" /><PairPill code={pair.code} /></div>
-                    {position && <div className={`position-pips ${positionPips === null || positionPips === 0 ? "flat" : positionPips > 0 ? "profit" : "loss"}`} title={`${position.side === "BUY" ? "L" : "S"} ${displayPrice(position.entryPrice, pair.yen)}`}>
-                      {positionPips === null ? "--" : `${positionPips > 0 ? "+" : ""}${positionPips.toFixed(1)}`}
-                    </div>}
+                    {position && <div className="position-entry-display">{displayPrice(position.entryPrice, pair.yen)} {position.side === "BUY" ? "L" : "S"}</div>}
                   </div>
                   <div className="spark-slot">
+                    <div className={`spark-watermarks ${position && rsi?.alert ? "dual" : ""}`}>
+                      {position && <div className={`position-pips-watermark ${positionPips === null || positionPips === 0 ? "flat" : positionPips > 0 ? "profit" : "loss"}`} title={`${position.side === "BUY" ? "L" : "S"} ${displayPrice(position.entryPrice, pair.yen)}`}>
+                        {positionPips === null ? "--" : `${positionPips > 0 ? "+" : ""}${positionPips.toFixed(1)}`}
+                      </div>}
+                      {rsi?.alert && <div className={`rsi-watermark ${rsi.alert}`} title={`確定3分足 RSI(14) ${rsi.value.toFixed(2)}`}>3m RSI {Math.round(rsi.value)}</div>}
+                    </div>
                     <Sparkline history={history} movement={movement} direction={chartDirection} mode={audioMode} now={currentTime} />
                   </div>
                   <div className="rate-summary">
@@ -3586,17 +3842,8 @@ export default function Home() {
               <button type="button" onClick={() => setAnalysisEditorOpen(false)} disabled={analysisSaveState === "saving"} aria-label="閉じる">×</button>
             </header>
             <div className="analysis-editor-grid">
-              <label><span>出典</span><select value={analysisDraft.sourceType} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, sourceType: event.target.value as AnalysisDraft["sourceType"] }))}>
-                <option value="SHIJIN">四神相場分析</option><option value="YOUTUBE">YouTube研究</option><option value="OTHER">その他分析</option>
-              </select></label>
-              <label><span>情報源名（任意）</span><input maxLength={80} value={analysisDraft.sourceLabel} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, sourceLabel: event.target.value }))} placeholder="例：ローソクさん" /></label>
               <label className="wide"><span>見出し（任意）</span><input maxLength={120} value={analysisDraft.headline} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, headline: event.target.value }))} /></label>
               <label className="wide"><span>原稿</span><textarea required minLength={10} maxLength={8000} rows={7} value={analysisDraft.body} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, body: event.target.value }))} placeholder="確認済みの相場情報と条件付きの見通しを入力" /></label>
-              <details className="wide"><summary>日時・保存設定を修正</summary><div className="analysis-editor-grid">
-                <label><span>分析基準時刻</span><input type="datetime-local" required value={analysisDraft.analysisAt} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, analysisAt: event.target.value }))} /></label>
-                <label><span>配信日時</span><input type="datetime-local" required value={analysisDraft.publishAt} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, publishAt: event.target.value }))} /></label>
-                <label><span>有効期限</span><input type="datetime-local" required value={analysisDraft.expiresAt} onChange={(event) => setAnalysisDraft((draft) => ({ ...draft, expiresAt: event.target.value }))} /></label>
-              </div></details>
             </div>
             {analysisReviewed && <div className="analysis-preview"><strong>抽出結果</strong>{analysisPreview.map((signal, index) => <div className="analysis-preview-row" key={`${signal.pair}-${index}`}>
               <select value={signal.pair} onChange={(event) => setAnalysisPreview((items) => items.map((item, i) => i === index ? { ...item, pair: event.target.value } : item))}>{PAIRS.map((pair) => <option key={pair.code}>{pair.code}</option>)}</select>
@@ -3606,7 +3853,7 @@ export default function Home() {
               <input type="number" step="0.00001" value={signal.levelHigh} onChange={(event) => setAnalysisPreview((items) => items.map((item, i) => i === index ? { ...item, levelHigh: Number(event.target.value) } : item))} />
               <button type="button" onClick={() => setAnalysisPreview((items) => items.filter((_, i) => i !== index))}>削除</button>
             </div>)}</div>}
-            <p className="analysis-editor-note">通貨ペアと方向は原稿から抽出します。価格の役割を確認・訂正してから登録してください。価格到達だけではエントリー成立と判定しません。</p>
+            <p className="analysis-editor-note">出典・情報源名・日時・有効期限・通貨ペア・方向は原稿から自動設定します。価格の役割を確認・訂正してから登録してください。価格到達だけではエントリー成立と判定しません。</p>
             {analysisSaveMessage && <p className={`analysis-save-message ${analysisSaveState}`}>{analysisSaveMessage}</p>}
             <footer><button type="button" onClick={() => setAnalysisEditorOpen(false)} disabled={analysisSaveState === "saving"}>閉じる</button><button className="analysis-save" type="submit" disabled={analysisSaveState === "saving"}>{analysisSaveState === "saving" ? "処理中…" : analysisReviewed ? "確認して登録" : "抽出内容を確認"}</button></footer>
           </form>

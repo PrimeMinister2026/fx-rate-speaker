@@ -41,7 +41,7 @@ test("renders development preview metadata", async (t) => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v129<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v142<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -377,7 +377,15 @@ test("v114 stores compact positions and appends their P/L speech in both audio m
   assert.match(page, /window\.localStorage\.setItem\(POSITIONS_STORAGE_KEY, JSON\.stringify\(next\)\)/);
   assert.match(page, /positionSpeech: positionsRef\.current\[code\]/);
   assert.match(page, /if \(item\.positionSpeech\) \{[\s\S]*playMode5PositionCue\(runId\)[\s\S]*playSpeech\(item\.positionSpeech, runId\)/);
-  assert.match(page, /className="position-entry"/);
+  assert.match(page, /className=\{`position-entry/);
+  assert.match(page, /persistSelection\(\[positionEditor\.pair\]\)/);
+  assert.match(page, /persistSelection\(\[state\.pair\]\)/);
+  assert.match(page, /persistPositions\(\{\}\);[\s\S]*persistSelection\(\[\]\)/);
+  assert.match(page, /setInterval\(\(\) => \{ void loadSharedSelection\(\); \}, 3000\)/);
+  assert.match(page, /type="text" inputMode="decimal"/);
+  assert.match(page, /className="position-entry-display"/);
+  assert.match(page, /adjustAutoStopHours\(-1\)/);
+  assert.match(page, /adjustAutoStopHours\(1\)/);
   assert.match(page, /className=\{`position-pips/);
   assert.match(page, />解除<\/button>/);
   assert.match(styles, /\.position-pips \{/);
@@ -404,7 +412,7 @@ test("v118 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 129/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 142/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
@@ -504,7 +512,7 @@ test("v81 allows pair selection changes while reading without restarting the wor
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(page, /const selectedRef = useRef<string\[]>\(\["USD\/JPY"\]\)/);
-  assert.match(page, /selectedRef\.current = next/);
+  assert.match(page, /selectedRef\.current = clean/);
   assert.match(page, /fetchAndSpeak\(runIdRef\.current, \[\.\.\.selectedRef\.current\], intervalSeconds\)/);
   assert.match(page, /\}, \[intervalSeconds\]\);/);
   assert.doesNotMatch(page, /if \(running\) return;/);

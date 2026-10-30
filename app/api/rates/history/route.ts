@@ -11,6 +11,7 @@ const SOURCE_SYMBOLS = {
 
 type SourceCode = keyof typeof SOURCE_SYMBOLS;
 type HistoryPoint = { price: number; timestamp: number };
+export type HistorySnapshot = { histories: Record<string, HistoryPoint[]>; fetchedAt: number; source: string };
 type YahooChart = {
   timestamp?: Array<number | null>;
   indicators?: { quote?: Array<{ close?: Array<number | null> }> };
@@ -79,7 +80,13 @@ function derivedRates(usdJpy: number, eurJpy: number, gbpJpy: number, audJpy: nu
   };
 }
 
-export async function GET() {
+let cached: { at: number; value: HistorySnapshot } | undefined;
+let pending: Promise<HistorySnapshot> | undefined;
+
+export async function currentHistory(): Promise<HistorySnapshot> {
+  if (cached && Date.now() - cached.at < 60_000) return cached.value;
+  if (pending) return pending;
+  pending = (async () => {
   const entries = await Promise.all((Object.keys(SOURCE_SYMBOLS) as SourceCode[]).map(async (code) => {
     try {
       return [code, await fetchYahooHistory(code)] as const;
@@ -103,18 +110,22 @@ export async function GET() {
     }
   }
 
-  if (!Object.keys(histories).length) {
-    return NextResponse.json({ error: "過去レート取得失敗" }, {
-      status: 502,
-      headers: { "Cache-Control": "no-store, no-cache, max-age=0, must-revalidate" },
-    });
-  }
-
-  return NextResponse.json({
+  if (!Object.keys(histories).length) throw new Error("過去レート取得失敗");
+  const value = {
     histories,
     fetchedAt: Math.floor(Date.now() / 1000),
     source: "Yahoo Finance 1m close",
-  }, {
-    headers: { "Cache-Control": "no-store, no-cache, max-age=0, must-revalidate" },
-  });
+  };
+  cached = { at: Date.now(), value };
+  return value;
+  })();
+  try { return await pending; } finally { pending = undefined; }
+}
+
+export async function GET() {
+  try {
+    return NextResponse.json(await currentHistory(), { headers: { "Cache-Control": "private, max-age=30" } });
+  } catch {
+    return NextResponse.json({ error: "過去レート取得失敗" }, { status: 502, headers: { "Cache-Control": "no-store" } });
+  }
 }
