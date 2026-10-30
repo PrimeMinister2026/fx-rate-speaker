@@ -1013,7 +1013,8 @@ export default function Home() {
   const [autoStopHours, setAutoStopHours] = useState(DEFAULT_AUTO_STOP_HOURS);
   const autoStopHoursRef = useRef(DEFAULT_AUTO_STOP_HOURS);
   const [remainingSeconds, setRemainingSeconds] = useState(DEFAULT_AUTO_STOP_HOURS * 60 * 60);
-  const [currentTime, setCurrentTime] = useState(() => Date.now());
+  // Keep the server and first client render identical; the clock starts after hydration.
+  const [currentTime, setCurrentTime] = useState(0);
   const [marketNotices, setMarketNotices] = useState<MarketNotice[]>(DEFAULT_MARKET_NOTICES);
   const [marketNoticeAdminOpen, setMarketNoticeAdminOpen] = useState(false);
   const [marketNoticesLoaded, setMarketNoticesLoaded] = useState(false);

@@ -41,7 +41,7 @@ test("renders development preview metadata", async (t) => {
   );
   const html = await response.text();
   assert.ok(
-    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v142<\/title>/i.test(html),
+    developmentPreviewMeta.test(html) || /<title>FX Rate Speaker v143<\/title>/i.test(html),
     "rendered output should contain preview metadata or the current production title",
   );
 });
@@ -412,7 +412,7 @@ test("v118 keeps the app version in one source file", async () => {
   const version = await readFile(new URL("../lib/version.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  assert.match(version, /FX_RATE_SPEAKER_VERSION = 142/);
+  assert.match(version, /FX_RATE_SPEAKER_VERSION = 143/);
   assert.match(version, /FX_RATE_SPEAKER_VERSION_LABEL/);
   assert.match(version, /FX_RATE_SPEAKER_TITLE/);
   assert.match(page, /FX_RATE_SPEAKER_VERSION_LABEL/);
