@@ -26,9 +26,7 @@ export function threeMinuteRsi(candles:readonly ThreeMinuteClose[], now:number, 
   // Seed from first 14 deltas. For exact Wilder continuation, pass sufficient
   // contiguous history and seed from the beginning, not only the final window.
   let avgGain=gain/period,avgLoss=loss/period;
-  const oldest=times[0],first=times.indexOf(oldest);
   if(times.length>period+1){
-    const start=times.length-(period+1);
     const all=times.slice();
     if(all.every((time,i)=>i===0||time-all[i-1]===STEP)){
       const prices=all.map(time=>byTime.get(time)!);
